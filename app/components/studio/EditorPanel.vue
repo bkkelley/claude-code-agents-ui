@@ -14,6 +14,8 @@ const emit = defineEmits<{
   'update:body': [value: string]
 }>()
 
+const { fetchAll: fetchAllSkills, skills: allSkills } = useSkills()
+
 const activeTab = ref<'instructions' | 'settings' | 'skills'>('instructions')
 
 const modelOptions = MODEL_IDS.map(id => ({
@@ -31,6 +33,15 @@ const memoryOptions: { label: string; value: AgentMemory; description: string }[
 function updateFrontmatter(key: keyof AgentFrontmatter, value: unknown) {
   emit('update:frontmatter', { ...props.frontmatter, [key]: value })
 }
+
+onMounted(() => {
+  fetchAllSkills()
+})
+
+const preloadedSkillSlugs = computed({
+  get: () => props.frontmatter.skills || [],
+  set: (val) => updateFrontmatter('skills', val)
+})
 </script>
 
 <template>
@@ -59,7 +70,7 @@ function updateFrontmatter(key: keyof AgentFrontmatter, value: unknown) {
       </div>
       <div class="space-y-1">
         <label class="text-[11px] font-medium" style="color: var(--text-tertiary);">Description</label>
-        <input :value="frontmatter.description" class="field-input w-full" placeholder="What does this agent do?" @input="updateFrontmatter('description', ($event.target as HTMLInputElement).value)" />
+        <textarea :value="frontmatter.description" rows="4" class="field-input w-full" placeholder="What does this agent do?" @input="updateFrontmatter('description', ($event.target as HTMLInputElement).value)" />
       </div>
       <div class="space-y-1">
         <label class="text-[11px] font-medium" style="color: var(--text-tertiary);">Model</label>
@@ -103,17 +114,58 @@ function updateFrontmatter(key: keyof AgentFrontmatter, value: unknown) {
       </div>
     </div>
 
-    <div v-if="activeTab === 'skills'" class="flex-1 overflow-y-auto p-4">
-      <div v-if="loadingSkills" class="text-[11px] font-mono py-4 text-center" style="color: var(--text-disabled);">Loading skills...</div>
-      <div v-else-if="!skills.length" class="text-[12px] py-4 text-center" style="color: var(--text-tertiary);">No skills attached to this agent yet.</div>
-      <div v-else class="space-y-2">
-        <div v-for="skill in skills" :key="skill.slug" class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: var(--surface-raised); border: 1px solid var(--border-subtle);">
-          <UIcon name="i-lucide-sparkles" class="size-3.5 shrink-0" style="color: var(--accent);" />
-          <div class="flex-1 min-w-0">
-            <div class="text-[12px] font-medium truncate" style="color: var(--text-primary);">{{ skill.frontmatter.name }}</div>
-            <div class="text-[10px] truncate" style="color: var(--text-tertiary);">{{ skill.frontmatter.description }}</div>
-          </div>
-          <span class="text-[9px] font-mono px-1.5 py-px rounded-full shrink-0" style="background: var(--badge-subtle-bg); color: var(--text-disabled);">{{ skill.source }}</span>
+    <div v-if="activeTab === 'skills'" class="flex-1 overflow-y-auto p-5 space-y-6">
+      <div class="space-y-2.5">
+        <div class="flex items-center justify-between">
+          <label class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-tertiary);">Preloaded Skills</label>
+          <HelpTip title="Preloading Skills" body="Injected directly into the subagent's context. Faster and more reliable than discovery." />
+        </div>
+        
+        <UMultiSelectDropdown
+          v-model="preloadedSkillSlugs"
+          :options="allSkills.map(s => ({
+            value: s.slug,
+            label: s.frontmatter.name || s.slug,
+            description: s.frontmatter.description
+          }))"
+          placeholder="Add skills to preload..."
+          search-placeholder="Search available skills..."
+          icon="i-lucide-sparkles"
+        />
+        
+        <p class="text-[10px] leading-relaxed" style="color: var(--text-tertiary);">
+          These skills will be available to the agent immediately without needing to search for them.
+        </p>
+      </div>
+
+      <div class="space-y-3">
+        <label class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-tertiary);">Currently Attached</label>
+        
+        <div v-if="loadingSkills" class="text-[11px] font-mono py-4 text-center" style="color: var(--text-disabled);">Loading attached skills...</div>
+        <div v-else-if="!skills.length" class="text-[12px] py-8 text-center border border-dashed rounded-xl" style="color: var(--text-tertiary); border-color: var(--border-subtle);">
+          <UIcon name="i-lucide-sparkles" class="size-5 mx-auto mb-2 opacity-20" />
+          No skills attached to this agent.
+        </div>
+        <div v-else class="space-y-2">
+          <NuxtLink 
+            v-for="skill in skills" 
+            :key="skill.slug" 
+            :to="`/skills/${skill.slug}`"
+            class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:border-accent/30 hover:shadow-sm group/skill" 
+            style="background: var(--surface-raised); border: 1px solid var(--border-subtle);"
+          >
+            <div class="size-8 rounded-lg flex items-center justify-center shrink-0 transition-colors group-hover/skill:bg-accent/10" style="background: var(--accent-muted); border: 1px solid rgba(229, 169, 62, 0.1);">
+              <UIcon name="i-lucide-sparkles" class="size-4" style="color: var(--accent);" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[12px] font-medium truncate group-hover/skill:text-accent transition-colors" style="color: var(--text-primary);">{{ skill.frontmatter.name }}</div>
+              <div class="text-[10px] truncate" style="color: var(--text-tertiary);">{{ skill.frontmatter.description }}</div>
+            </div>
+            <div class="flex flex-col items-end gap-1 shrink-0">
+              <span class="text-[9px] font-mono px-1.5 py-px rounded-full" style="background: var(--badge-subtle-bg); color: var(--text-tertiary); border: 1px solid var(--border-subtle);">{{ skill.source }}</span>
+              <span v-if="frontmatter.skills?.includes(skill.slug)" class="text-[8px] font-bold uppercase tracking-tighter" style="color: var(--accent);">Preloaded</span>
+            </div>
+          </NuxtLink>
         </div>
       </div>
     </div>

@@ -14,9 +14,11 @@ const emit = defineEmits<{
 }>();
 
 const { create, update } = useAgents();
+const { fetchAll: fetchAllSkills, skills: allSkills } = useSkills();
 const toast = useToast();
 const saving = ref(false);
 const submitted = ref(false);
+const skillSearch = ref("");
 
 const source = props.initial || props.template;
 
@@ -26,7 +28,34 @@ const frontmatter = ref<AgentFrontmatter>({
   model: source?.frontmatter.model,
   color: source?.frontmatter.color,
   memory: source?.frontmatter.memory,
+  skills: source?.frontmatter.skills || [],
 });
+
+onMounted(() => {
+  fetchAllSkills();
+});
+
+const filteredSkills = computed(() => {
+  const q = skillSearch.value.toLowerCase();
+  if (!q) return allSkills.value;
+  return allSkills.value.filter(
+    (s) =>
+      s.slug.toLowerCase().includes(q) ||
+      s.frontmatter.name.toLowerCase().includes(q) ||
+      s.frontmatter.description.toLowerCase().includes(q)
+  );
+});
+
+function toggleSkill(slug: string) {
+  const skills = [...(frontmatter.value.skills || [])];
+  const idx = skills.indexOf(slug);
+  if (idx === -1) {
+    skills.push(slug);
+  } else {
+    skills.splice(idx, 1);
+  }
+  frontmatter.value.skills = skills;
+}
 
 const body = ref(source?.body || "");
 
@@ -148,7 +177,7 @@ async function save() {
       >
       <textarea
         v-model="frontmatter.description"
-        rows="2"
+        rows="4"
         class="field-textarea"
         :class="{ 'field-input--error': fieldError('description') }"
         placeholder="When to use this agent..."
@@ -158,6 +187,27 @@ async function save() {
         class="field-error"
         >{{ fieldError("description") }}</span
       >
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Preloaded Skills</label>
+      <span class="field-hint">
+        Select skills that should be automatically loaded into this agent's
+        context at startup.
+      </span>
+      <div class="mt-2">
+        <UMultiSelectDropdown
+          v-model="frontmatter.skills"
+          :options="allSkills.map(s => ({
+            value: s.slug,
+            label: s.frontmatter.name || s.slug,
+            description: s.frontmatter.description
+          }))"
+          placeholder="Select skills to preload..."
+          search-placeholder="Search skills..."
+          icon="i-lucide-sparkles"
+        />
+      </div>
     </div>
 
     <div class="field-group">

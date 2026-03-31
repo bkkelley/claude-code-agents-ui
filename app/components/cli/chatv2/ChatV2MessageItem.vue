@@ -588,7 +588,7 @@ function getTodoStatusBadge(status: string): { bg: string; color: string; label:
     <template v-else-if="message.kind === 'interactive_prompt' && message.interactivePrompt">
       <div
         class="px-4 py-3 rounded-xl border"
-        style="background: var(--surface); border-color: var(--accent);"
+        style="background: var(--surface-overlay); border-color: var(--accent);"
       >
         <p class="text-[12px] font-medium mb-2" style="color: var(--text-primary);">
           {{ message.interactivePrompt.question }}

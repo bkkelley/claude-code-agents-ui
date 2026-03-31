@@ -7,15 +7,28 @@ interface PluginEntry {
 }
 
 export function extractRelationships(
-  agents: { slug: string; body: string }[],
+  agents: { slug: string; body: string; frontmatter: Record<string, unknown> }[],
   commands: { slug: string; body: string; frontmatter: Record<string, unknown> }[],
   skills: { slug: string; body: string; frontmatter: Record<string, unknown> }[] = [],
   plugins: PluginEntry[] = [],
   mcpServers: { name: string }[] = [],
+  extraSkillSlugs: string[] = [],
 ): Relationship[] {
   const relationships: Relationship[] = []
   const agentNames = new Set(agents.map(a => a.slug))
   const skillSlugs = new Set(skills.map(s => s.slug))
+  // Add skills from plugins
+  for (const plugin of plugins) {
+    if (plugin.skills) {
+      for (const skill of plugin.skills) {
+        skillSlugs.add(skill)
+      }
+    }
+  }
+  // Add extra skill slugs (e.g. from GitHub imports)
+  for (const slug of extraSkillSlugs) {
+    skillSlugs.add(slug)
+  }
   const mcpNames = new Set(mcpServers.map(s => s.name))
   const seen = new Set<string>()
 
@@ -24,6 +37,25 @@ export function extractRelationships(
     if (!seen.has(key)) {
       seen.add(key)
       relationships.push(rel)
+    }
+  }
+
+  // Agents: check frontmatter.skills reference to link agent -> skills
+  for (const agent of agents) {
+    const preloadedSkills = agent.frontmatter.skills as string[] | undefined
+    if (preloadedSkills && Array.isArray(preloadedSkills)) {
+      for (const skillSlug of preloadedSkills) {
+        if (skillSlugs.has(skillSlug)) {
+          add({
+            sourceType: 'agent',
+            sourceSlug: agent.slug,
+            targetType: 'skill',
+            targetSlug: skillSlug,
+            type: 'agent-frontmatter',
+            evidence: `preloads skill: ${skillSlug}`,
+          })
+        }
+      }
     }
   }
 

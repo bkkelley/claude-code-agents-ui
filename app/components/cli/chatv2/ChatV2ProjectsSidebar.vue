@@ -434,7 +434,7 @@ function confirmDelete() {
                       ref="editInputRef"
                       v-model="editingInput"
                       class="flex-1 min-w-0 px-1.5 py-0.5 rounded text-[12px] font-medium outline-none"
-                      style="background: var(--surface); border: 1px solid var(--accent); color: var(--text-primary);"
+                      style="background: var(--surface-raised); border: 1px solid var(--accent); color: var(--text-primary);"
                       @keyup.enter="saveEdit"
                       @keyup.escape="cancelEdit"
                       @click.stop
@@ -536,48 +536,80 @@ function confirmDelete() {
 
     <!-- Delete Confirmation Modal -->
     <Teleport to="body">
-      <div
-        v-if="showDeleteModal"
-        class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]"
-        @click.self="showDeleteModal = false"
-      >
-        <div class="w-[400px] p-6 rounded-2xl shadow-2xl border border-[var(--border-subtle)]" style="background: var(--surface); opacity: 1; position: relative; z-index: 101;">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="p-2 rounded-full bg-red-500/10">
-              <UIcon name="i-lucide-alert-triangle" class="size-5 text-red-500" />
+      <Transition name="modal">
+        <div
+          v-if="showDeleteModal"
+          class="fixed inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center z-[100]"
+          @click.self="showDeleteModal = false"
+        >
+          <div class="w-[400px] p-6 rounded-2xl shadow-2xl border border-[var(--border-subtle)] modal-content" style="background: var(--surface-overlay); opacity: 1; position: relative; z-index: 101;">
+            <div class="flex items-center gap-3 mb-4">
+              <div class="p-2 rounded-full bg-red-500/10">
+                <UIcon name="i-lucide-alert-triangle" class="size-5 text-red-500" />
+              </div>
+              <h3 class="text-[16px] font-bold" style="color: var(--text-primary);">
+                Delete Session
+              </h3>
             </div>
-            <h3 class="text-[16px] font-bold" style="color: var(--text-primary);">
-              Delete Session
-            </h3>
-          </div>
-          
-          <p class="text-[13px] leading-relaxed mb-6" style="color: var(--text-secondary);">
-            Are you sure you want to delete <span class="font-medium text-[var(--text-primary)]">"{{ truncate(deleteSessionName, 60) }}"</span>? This action cannot be undone and all messages will be permanently lost.
-          </p>
-          
-          <div class="flex items-center justify-end gap-3">
-            <button
-              class="px-4 py-2 rounded-xl text-[13px] font-semibold transition-all hover:bg-[var(--surface-hover)]"
-              style="background: var(--surface-raised); color: var(--text-secondary);"
-              @click="showDeleteModal = false"
-            >
-              Cancel
-            </button>
-            <button
-              class="px-4 py-2 rounded-xl text-[13px] font-semibold transition-all hover:opacity-90 active:scale-95"
-              style="background: #ef4444; color: white; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);"
-              @click="confirmDelete"
-            >
-              Delete Session
-            </button>
+            
+            <p class="text-[13px] leading-relaxed mb-6" style="color: var(--text-secondary);">
+              Are you sure you want to delete <span class="font-medium text-[var(--text-primary)]">"{{ truncate(deleteSessionName, 60) }}"</span>? This action cannot be undone and all messages will be permanently lost.
+            </p>
+            
+            <div class="flex items-center justify-end gap-3">
+              <button
+                class="px-4 py-2 rounded-xl text-[13px] font-semibold transition-all hover:bg-[var(--surface-hover)]"
+                style="background: var(--surface-raised); color: var(--text-secondary); border: 1px solid var(--border-subtle);"
+                @click="showDeleteModal = false"
+              >
+                Cancel
+              </button>
+              <button
+                class="px-4 py-2 rounded-xl text-[13px] font-semibold transition-all hover:opacity-90 active:scale-95"
+                style="background: var(--error); color: white; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);"
+                @click="confirmDelete"
+              >
+                Delete Session
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
 
 <style scoped>
+/* Modal Animation */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-active .modal-content {
+  animation: modal-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-leave-active .modal-content {
+  animation: modal-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) reverse;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 /* Ensure animation replays when list items are added */
 .stagger-item {
   opacity: 0;

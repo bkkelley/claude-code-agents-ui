@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const { skills, loading, error, fetchAll: fetchSkills } = useSkills()
 const router = useRouter()
+const { workingDir } = useWorkingDir()
 
 const showCreateModal = ref(false)
 const showImportModal = ref(false)
@@ -17,7 +18,7 @@ const filteredSkills = computed(() => {
 })
 
 onMounted(() => {
-  fetchSkills()
+  fetchSkills({ workingDir: workingDir.value })
 })
 </script>
 
@@ -84,13 +85,44 @@ onMounted(() => {
             {{ skill.frontmatter.context }}
           </span>
 
+          <!-- Plugin badge -->
+          <span
+            v-if="skill.source === 'plugin' && skill.pluginName"
+            class="text-[10px] font-mono px-1.5 py-px rounded-full shrink-0 badge badge-accent"
+          >
+            plugin: {{ skill.pluginName }}
+          </span>
+
+          <!-- MCP badge -->
+          <span
+            v-if="skill.mcpServer"
+            class="text-[10px] font-mono px-1.5 py-px rounded-full shrink-0 badge"
+            style="background: rgba(99, 102, 241, 0.1); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.2);"
+          >
+            mcp: {{ skill.mcpServer.name }}
+          </span>
+
           <!-- Agent badge -->
           <span
-            v-if="skill.frontmatter.agent"
+            v-else-if="skill.frontmatter.agent"
             class="text-[10px] font-mono px-1.5 py-px rounded-full shrink-0 badge badge-agent"
           >
             agent: {{ skill.frontmatter.agent }}
           </span>
+
+          <!-- Preloaded by badge -->
+          <div
+            v-if="skill.agents?.length"
+            class="flex items-center gap-1 shrink-0"
+            :title="`Preloaded by: ${skill.agents.map(a => a.name).join(', ')}`"
+          >
+            <span
+              class="text-[10px] font-mono px-1.5 py-px rounded-full badge badge-subtle flex items-center gap-1"
+            >
+              <UIcon name="i-lucide-user" class="size-2.5" />
+              <span v-if="skill.agents.length > 1">({{ skill.agents.length }})</span>
+            </span>
+          </div>
 
           <!-- GitHub badge -->
           <ImportBadge

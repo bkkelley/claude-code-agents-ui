@@ -7,6 +7,7 @@ export interface AgentFrontmatter {
   model?: AgentModel
   color?: string
   memory?: AgentMemory
+  skills?: string[]
 }
 
 export interface Agent {
@@ -99,6 +100,9 @@ export interface Skill {
   filePath: string
   source?: 'local' | 'github' | 'plugin'
   githubRepo?: string
+  pluginName?: string
+  mcpServer?: { name: string; scope: string }
+  agents?: { name: string; slug: string }[]
 }
 
 export interface AgentSkill {
