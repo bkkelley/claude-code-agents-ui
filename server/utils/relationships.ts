@@ -7,7 +7,7 @@ interface PluginEntry {
 }
 
 export function extractRelationships(
-  agents: { slug: string; body: string }[],
+  agents: { slug: string; body: string; frontmatter: Record<string, unknown> }[],
   commands: { slug: string; body: string; frontmatter: Record<string, unknown> }[],
   skills: { slug: string; body: string; frontmatter: Record<string, unknown> }[] = [],
   plugins: PluginEntry[] = [],
@@ -24,6 +24,25 @@ export function extractRelationships(
     if (!seen.has(key)) {
       seen.add(key)
       relationships.push(rel)
+    }
+  }
+
+  // Agents: check frontmatter.skills reference to link agent -> skills
+  for (const agent of agents) {
+    const preloadedSkills = agent.frontmatter.skills as string[] | undefined
+    if (preloadedSkills && Array.isArray(preloadedSkills)) {
+      for (const skillSlug of preloadedSkills) {
+        if (skillSlugs.has(skillSlug)) {
+          add({
+            sourceType: 'agent',
+            sourceSlug: agent.slug,
+            targetType: 'skill',
+            targetSlug: skillSlug,
+            type: 'agent-frontmatter',
+            evidence: `preloads skill: ${skillSlug}`,
+          })
+        }
+      }
     }
   }
 

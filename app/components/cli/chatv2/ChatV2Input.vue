@@ -85,14 +85,14 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="px-3 py-2" style="background: var(--surface);">
+  <div class="px-3 py-2" style="background: var(--surface-base);">
     <!-- Image Previews -->
     <div v-if="attachedImages.length > 0" class="flex gap-2 mb-2 overflow-x-auto pb-1">
       <div v-for="(img, idx) in attachedImages" :key="idx" class="relative group shrink-0">
         <img :src="img.url" class="h-16 w-16 object-cover rounded-lg border" style="border-color: var(--border-subtle);" />
         <button
           class="absolute -top-1.5 -right-1.5 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-          style="background: #ef4444; color: white; border: 1px solid var(--surface);"
+          style="background: #ef4444; color: white; border: 1px solid var(--surface-base);"
           @click="removeImage(idx)"
         >
           <UIcon name="i-lucide-x" class="size-3" />

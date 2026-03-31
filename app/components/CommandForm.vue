@@ -104,7 +104,7 @@ async function save() {
       <label class="field-label" data-required>Description</label>
       <textarea
         v-model="frontmatter.description"
-        rows="2"
+        rows="4"
         class="field-textarea"
         :class="{ 'field-input--error': fieldError('description') }"
         placeholder="What this command does..."

@@ -177,7 +177,7 @@ useUnsavedChanges(isDirty)
 
         <div class="field-group">
           <label class="field-label">Description</label>
-          <textarea v-model="frontmatter.description" rows="2" class="field-textarea" />
+          <textarea v-model="frontmatter.description" rows="4" class="field-textarea" />
           <span class="field-hint">Helps Claude understand when to suggest this command</span>
         </div>
 

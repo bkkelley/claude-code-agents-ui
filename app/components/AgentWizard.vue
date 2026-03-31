@@ -8,18 +8,24 @@ const emit = defineEmits<{
 }>()
 
 const { create } = useAgents()
+const { fetchAll: fetchAllSkills, skills: allSkills } = useSkills()
 const toast = useToast()
 
 const step = ref(1)
 const saving = ref(false)
-const totalSteps = 3
+const totalSteps = 4
 
 const frontmatter = ref<AgentFrontmatter>({
   name: '',
   description: '',
   model: DEFAULT_MODEL,
+  skills: [],
 })
 const body = ref('')
+
+onMounted(() => {
+  fetchAllSkills()
+})
 
 // Validation
 const nameError = computed(() => {
@@ -112,7 +118,7 @@ const memoryOptions: { value: AgentMemory | undefined; label: string; desc: stri
         </label>
         <textarea
           v-model="frontmatter.description"
-          rows="2"
+          rows="4"
           class="field-textarea"
           placeholder="Helps me draft and polish professional emails..."
         />
@@ -203,8 +209,45 @@ const memoryOptions: { value: AgentMemory | undefined; label: string; desc: stri
       </div>
     </div>
 
-    <!-- Step 3: Instructions -->
+    <!-- Step 3: Capabilities (Skills) -->
     <div v-else-if="step === 3" class="space-y-4">
+      <p class="text-[12px] text-label leading-relaxed">
+        Preload specific skills to give this agent domain knowledge and specialized capabilities from the start.
+      </p>
+
+      <div class="field-group">
+        <label class="field-label">Skills</label>
+        <UMultiSelectDropdown
+          v-model="frontmatter.skills"
+          :options="allSkills.map(s => ({
+            value: s.slug,
+            label: s.frontmatter.name || s.slug,
+            description: s.frontmatter.description
+          }))"
+          placeholder="Select skills to preload..."
+          search-placeholder="Search skills..."
+          icon="i-lucide-sparkles"
+        />
+        <span class="field-hint">
+          These skills will be injected into the subagent's context at startup.
+        </span>
+      </div>
+
+      <div
+        class="rounded-lg p-3 space-y-2 bg-info-subtle border border-info/10"
+      >
+        <div class="flex items-center gap-2 text-info">
+          <UIcon name="i-lucide-info" class="size-3.5" />
+          <span class="text-[11px] font-medium uppercase tracking-wider">Tip</span>
+        </div>
+        <p class="text-[11px] leading-relaxed text-info/80">
+          Preloading skills is better than having the agent discover them during execution. It makes the agent faster and more reliable for specific tasks.
+        </p>
+      </div>
+    </div>
+
+    <!-- Step 4: Instructions -->
+    <div v-else-if="step === 4" class="space-y-4">
       <p class="text-[12px] text-label leading-relaxed">
         Tell <strong class="text-body">{{ frontmatter.name }}</strong> how to behave. What tone should it use? What rules should it follow? You can always edit this later.
       </p>

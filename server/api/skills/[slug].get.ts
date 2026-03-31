@@ -1,10 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { resolveClaudePath } from '../../utils/claudeDir'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import { resolvePluginInstallPath } from '../../utils/marketplace'
+import { getPreloadingAgents, getMcpServerForSkill } from '../../utils/skillRelationships'
 import type { SkillFrontmatter } from '~/types'
 
 interface InstalledEntry {
@@ -24,17 +25,30 @@ async function readJson<T>(path: string): Promise<T | null> {
 
 export default defineEventHandler(async (event) => {
   const slug = getRouterParam(event, 'slug')!
+  const { workingDir } = getQuery(event) as { workingDir?: string }
+
+  // Load all agents to find preloading associations
+  const preloadingAgents = await getPreloadingAgents(slug)
 
   // 1. Check standalone skills
-  const standalonePath = join(resolveClaudePath('skills', slug), 'SKILL.md')
+  const standaloneDir = resolveClaudePath('skills', slug)
+  let standalonePath = join(standaloneDir, 'SKILL.md')
+  if (!existsSync(standalonePath)) {
+    standalonePath = join(standaloneDir, `${slug}.md`)
+  }
+
   if (existsSync(standalonePath)) {
     const raw = await readFile(standalonePath, 'utf-8')
     const { frontmatter, body } = parseFrontmatter<SkillFrontmatter>(raw)
+    const mcpServer = await getMcpServerForSkill(slug, frontmatter, body, workingDir)
     return {
       slug,
       frontmatter: { name: slug, ...frontmatter },
       body,
       filePath: standalonePath,
+      source: 'local' as const,
+      agents: preloadingAgents,
+      mcpServer,
     }
   }
 
@@ -108,6 +122,7 @@ export default defineEventHandler(async (event) => {
       if (skillPath) {
         const raw = await readFile(skillPath, 'utf-8')
         const { frontmatter, body } = parseFrontmatter<SkillFrontmatter>(raw)
+        const mcpServer = await getMcpServerForSkill(slug, frontmatter, body, workingDir)
         return {
           slug,
           frontmatter: { name: slug, ...frontmatter },
@@ -115,6 +130,8 @@ export default defineEventHandler(async (event) => {
           filePath: skillPath,
           source: 'github' as const,
           githubRepo: `${entry.owner}/${entry.repo}`,
+          agents: preloadingAgents,
+          mcpServer,
         }
       }
     }
@@ -131,17 +148,23 @@ export default defineEventHandler(async (event) => {
 
       const installPath = resolvePluginInstallPath(pluginId, entry.installPath)
       const pluginSkillsDir = join(installPath, 'skills')
+      const [pluginName] = pluginId.split('@')
       if (!existsSync(pluginSkillsDir)) continue
 
       const skillPath = join(pluginSkillsDir, slug, 'SKILL.md')
       if (existsSync(skillPath)) {
         const raw = await readFile(skillPath, 'utf-8')
         const { frontmatter, body } = parseFrontmatter<SkillFrontmatter>(raw)
+        const mcpServer = await getMcpServerForSkill(slug, frontmatter, body, workingDir)
         return {
           slug,
           frontmatter: { name: slug, ...frontmatter },
           body,
           filePath: skillPath,
+          source: 'plugin' as const,
+          pluginName,
+          agents: preloadingAgents,
+          mcpServer,
         }
       }
     }

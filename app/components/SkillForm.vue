@@ -12,7 +12,6 @@ const emit = defineEmits<{
 }>()
 
 const { create, update } = useSkills()
-const { agents } = useAgents()
 const toast = useToast()
 const saving = ref(false)
 const submitted = ref(false)
@@ -21,7 +20,6 @@ const frontmatter = ref<SkillFrontmatter>({
   name: props.initial?.frontmatter.name || '',
   description: props.initial?.frontmatter.description || '',
   context: props.initial?.frontmatter.context,
-  agent: props.initial?.frontmatter.agent,
 })
 
 const body = ref(props.initial?.body || '')
@@ -41,10 +39,6 @@ function fieldError(field: string) {
   return submitted.value ? errors.value[field] : undefined
 }
 
-const agentOptions = computed(() =>
-  agents.value.map(a => a.frontmatter.name)
-)
-
 async function save() {
   submitted.value = true
   if (!isValid.value) return
@@ -57,7 +51,6 @@ async function save() {
       description: frontmatter.value.description.trim(),
     }
     if (frontmatter.value.context?.trim()) fm.context = frontmatter.value.context.trim()
-    if (frontmatter.value.agent?.trim()) fm.agent = frontmatter.value.agent.trim()
 
     const isEdit = props.mode === 'edit' && props.initial
     const skill = isEdit
@@ -104,7 +97,7 @@ async function save() {
       <label class="field-label" data-required>Description</label>
       <textarea
         v-model="frontmatter.description"
-        rows="2"
+        rows="4"
         class="field-textarea"
         :class="{ 'field-input--error': fieldError('description') }"
         placeholder="When to use this skill and what it does..."
@@ -112,18 +105,33 @@ async function save() {
       <span v-if="fieldError('description')" class="field-error">{{ fieldError('description') }}</span>
     </div>
 
-    <div class="field-group">
-      <label class="field-label">Agent</label>
-      <input
-        v-model="frontmatter.agent"
-        class="field-input"
-        placeholder="Optional — link to an agent"
-        :list="agentOptions.length > 0 ? 'agent-opts' : undefined"
-      />
-      <datalist v-if="agentOptions.length > 0" id="agent-opts">
-        <option v-for="a in agentOptions" :key="a" :value="a" />
-      </datalist>
-      <span class="field-hint">Agent that handles this skill</span>
+    <div v-if="initial?.agents?.length" class="field-group">
+      <label class="field-label">Preloaded in Agents</label>
+      <div class="flex flex-wrap gap-1.5 mt-1">
+        <span
+          v-for="agent in initial.agents"
+          :key="agent.slug"
+          class="text-[10px] font-mono px-2 py-0.5 rounded bg-badge-subtle-bg text-text-tertiary border border-border-subtle"
+        >
+          {{ agent.name }}
+        </span>
+      </div>
+      <span class="field-hint mt-1">This skill is automatically loaded by these agents. Manage this in the Agent settings.</span>
+    </div>
+
+    <div v-if="initial?.mcpServer" class="field-group">
+      <label class="field-label">Associated MCP Server</label>
+      <div class="mt-1">
+        <NuxtLink 
+          :to="`/mcp/${encodeURIComponent(initial.mcpServer.name)}?scope=${initial.mcpServer.scope}`"
+          class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-surface-base border border-border-subtle hover:border-accent/30 transition-all group"
+        >
+          <UIcon name="i-lucide-server" class="size-3.5 text-secondary group-hover:text-accent transition-colors" />
+          <span class="text-[11px] font-medium">{{ initial.mcpServer.name }}</span>
+          <span class="text-[9px] font-mono text-meta uppercase ml-1">{{ initial.mcpServer.scope }}</span>
+        </NuxtLink>
+      </div>
+      <span class="field-hint mt-1.5">This skill appears to be associated with an MCP server.</span>
     </div>
 
     <div class="field-group">

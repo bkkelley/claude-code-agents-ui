@@ -7,6 +7,7 @@ const toast = useToast()
 const { skills, fetchOne, fetchOneByPath, update, remove } = useSkills()
 const { prefillSkill } = useChat()
 const { agents } = useAgents()
+const { workingDir } = useWorkingDir()
 
 const slug = route.params.slug as string
 const skill = ref<Skill | null>(null)
@@ -36,14 +37,23 @@ onMounted(async () => {
   try {
     // Try to find skill in local state to get filePath
     const localSkill = skills.value.find(s => s.slug === slug)
+    const query = workingDir.value ? { workingDir: workingDir.value } : {}
+    
     if (localSkill?.filePath) {
-      skill.value = await fetchOneByPath(slug, localSkill.filePath)
+      skill.value = await $fetch<Skill>(`/api/skills/${encodeURIComponent(slug)}`, {
+        method: 'POST',
+        body: { filePath: localSkill.filePath },
+        query
+      })
     } else {
-      skill.value = await fetchOne(slug)
+      skill.value = await $fetch<Skill>(`/api/skills/${encodeURIComponent(slug)}`, {
+        query
+      })
     }
     frontmatter.value = { ...skill.value.frontmatter }
     body.value = skill.value.body
-  } catch {
+  } catch (err: any) {
+    console.error('Skill load error:', err)
     toast.add({ title: 'Skill not found', color: 'error' })
     router.push('/skills')
   }
@@ -126,15 +136,6 @@ const isDirty = computed(() => {
 })
 
 useUnsavedChanges(isDirty)
-
-const agentOptions = computed(() => [
-  { value: undefined, label: 'None (Global)', description: 'Available to all agents' },
-  ...agents.value.map(a => ({
-    value: a.frontmatter.name,
-    label: a.frontmatter.name,
-    description: a.frontmatter.description
-  }))
-])
 </script>
 
 <template>
@@ -246,6 +247,13 @@ const agentOptions = computed(() => [
                 >
                   {{ frontmatter.context }}
                 </span>
+                <span
+                  v-if="skill.mcpServer"
+                  class="text-[10px] font-mono px-2 py-0.5 rounded-full shrink-0"
+                  style="background: rgba(99, 102, 241, 0.1); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.2);"
+                >
+                  mcp: {{ skill.mcpServer.name }}
+                </span>
               </div>
               <p v-if="frontmatter.description" class="text-[12px] mt-1 leading-relaxed text-label">
                 {{ frontmatter.description }}
@@ -269,26 +277,70 @@ const agentOptions = computed(() => [
               <input v-model="frontmatter.context" class="field-input" :disabled="isImported" placeholder="Leave blank for always available" />
               <span class="field-hint">Restrict when this skill appears (e.g., only in certain repos)</span>
             </div>
-            <div class="field-group">
-              <label class="field-label">Agent</label>
-              <USelectDropdown
-                :model-value="frontmatter.agent"
-                :options="agentOptions"
-                :disabled="isImported"
-                placeholder="Select an agent..."
-                icon="i-lucide-user"
-                @update:model-value="frontmatter.agent = $event"
-              />
-              <span class="field-hint">Link this skill to a specific agent. The skill's instructions will be loaded when that agent is active.</span>
-            </div>
           </div>
 
           <div class="field-group">
             <label class="field-label">Description</label>
-            <textarea v-model="frontmatter.description" rows="2" class="field-textarea" :disabled="isImported" />
+            <textarea v-model="frontmatter.description" rows="4" class="field-textarea" :disabled="isImported" />
             <span class="field-hint">Helps Claude decide when to use this skill. Be specific about the trigger.</span>
           </div>
         </div>
+      </div>
+
+      <!-- MCP Server Info -->
+      <div v-if="skill.mcpServer" class="space-y-3">
+        <label class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-tertiary);">Associated MCP Server</label>
+        
+        <NuxtLink 
+          :to="`/mcp/${encodeURIComponent(skill.mcpServer.name)}?scope=${skill.mcpServer.scope}`"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:border-accent/30 hover:shadow-sm group/mcp" 
+          style="background: var(--surface-raised); border: 1px solid var(--border-subtle);"
+        >
+          <div class="size-8 rounded-lg flex items-center justify-center shrink-0 transition-colors group-hover/mcp:bg-accent/10" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.15);">
+            <UIcon name="i-lucide-server" class="size-4" style="color: #818cf8;" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-[12px] font-medium truncate group-hover/mcp:text-accent transition-colors" style="color: var(--text-primary);">{{ skill.mcpServer.name }}</div>
+            <div class="text-[10px] truncate" style="color: var(--text-tertiary);">
+              This skill appears to be part of or uses the {{ skill.mcpServer.name }} MCP server.
+            </div>
+          </div>
+          <div class="flex flex-col items-end gap-1 shrink-0">
+            <span class="text-[9px] font-mono px-1.5 py-px rounded-full capitalize" style="background: var(--badge-subtle-bg); color: var(--text-tertiary); border: 1px solid var(--border-subtle);">{{ skill.mcpServer.scope }}</span>
+          </div>
+          <div class="shrink-0">
+            <UIcon name="i-lucide-chevron-right" class="size-3.5 opacity-0 group-hover/mcp:opacity-100 transition-all text-meta" />
+          </div>
+        </NuxtLink>
+      </div>
+
+      <!-- Agents using this skill -->
+      <div v-if="skill.agents?.length" class="space-y-3">
+        <label class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-tertiary);">Agents Preloading This Skill</label>
+        
+        <div class="space-y-2">
+          <NuxtLink 
+            v-for="agent in skill.agents" 
+            :key="agent.slug" 
+            :to="`/agents/${agent.slug}`"
+            class="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:border-accent/30 hover:shadow-sm group/agent" 
+            style="background: var(--surface-raised); border: 1px solid var(--border-subtle);"
+          >
+            <div class="size-8 rounded-lg flex items-center justify-center shrink-0 transition-colors group-hover/agent:bg-accent/10" style="background: var(--accent-muted); border: 1px solid rgba(229, 169, 62, 0.1);">
+              <UIcon name="i-lucide-user" class="size-4" style="color: var(--accent);" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[12px] font-medium truncate group-hover/agent:text-accent transition-colors" style="color: var(--text-primary);">{{ agent.name }}</div>
+              <div class="text-[10px] truncate" style="color: var(--text-tertiary);">This agent will have this skill available in its context by default.</div>
+            </div>
+            <div class="shrink-0">
+              <UIcon name="i-lucide-chevron-right" class="size-3.5 opacity-0 group-hover/agent:opacity-100 transition-all text-meta" />
+            </div>
+          </NuxtLink>
+        </div>
+        <p class="text-[10px] leading-relaxed" style="color: var(--text-tertiary);">
+          These agents have this skill explicitly listed in their preloaded skills. You can manage this in each agent's settings.
+        </p>
       </div>
 
       <!-- Skill Prompt Editor -->

@@ -577,7 +577,7 @@ function handleOpenFile(filePath: string) {
       :style="{
         width: sidebarWidth,
         borderColor: 'var(--border-subtle)',
-        background: 'var(--surface)',
+        background: 'var(--surface-base)',
       }"
     >
       <!-- Projects Sidebar -->

@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { resolveClaudePath } from '../../utils/claudeDir'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import { resolvePluginInstallPath } from '../../utils/marketplace'
+import { getPreloadingAgents, getMcpServerForSkill } from '../../utils/skillRelationships'
 import type { Skill, SkillFrontmatter } from '~/types'
 
 interface InstalledEntry {
@@ -21,8 +22,40 @@ async function readJson<T>(path: string): Promise<T | null> {
   }
 }
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
+  const { workingDir } = getQuery(event) as { workingDir?: string }
   const skills: Skill[] = []
+
+  // Load all agents to find preloading associations
+  const agentsDir = resolveClaudePath('agents')
+  const agentPreloads = new Map<string, { name: string; slug: string }[]>() // skillSlug -> {name, slug}[]
+
+  if (existsSync(agentsDir)) {
+    const agentFiles = await readdir(agentsDir)
+    for (const file of agentFiles) {
+      if (!file.endsWith('.md')) continue
+      try {
+        const agentSlug = file.replace(/\.md$/, '')
+        const raw = await readFile(join(agentsDir, file), 'utf-8')
+        const { frontmatter } = parseFrontmatter<{ name: string; skills?: string[] }>(raw)
+        const agentName = frontmatter.name || agentSlug
+        const preloadedSkills = frontmatter.skills || []
+
+        for (const skillSlug of preloadedSkills) {
+          if (!agentPreloads.has(skillSlug)) agentPreloads.set(skillSlug, [])
+          agentPreloads.get(skillSlug)!.push({ name: agentName, slug: agentSlug })
+        }
+      } catch {
+        // Skip invalid agent files
+      }
+    }
+  }
+
+  // Helper to attach agents and MCP server to a skill
+  const attachMetadata = async (skill: Skill) => {
+    skill.agents = agentPreloads.get(skill.slug) || []
+    skill.mcpServer = await getMcpServerForSkill(skill.slug, skill.frontmatter, skill.body, workingDir)
+  }
 
   // 1. Standalone skills from ~/.claude/skills/
   const skillsDir = resolveClaudePath('skills')
@@ -42,12 +75,15 @@ export default defineEventHandler(async () => {
         slug = frontmatter.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
       }
 
-      skills.push({
+      const skill: Skill = {
         slug,
         frontmatter: { name: slug, ...frontmatter },
         body,
         filePath: skillPath,
-      })
+        source: 'local',
+      }
+      await attachMetadata(skill)
+      skills.push(skill)
     }
   }
 
@@ -80,17 +116,19 @@ export default defineEventHandler(async () => {
           slug = frontmatter.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
         }
 
-        skills.push({
+        const skill: Skill = {
           slug,
           frontmatter: {
             name: slug,
             ...frontmatter,
-            // Tag with plugin name as agent if not already set
-            agent: frontmatter.agent || pluginName,
           },
           body,
           filePath: skillPath,
-        })
+          source: 'plugin',
+          pluginName,
+        }
+        await attachMetadata(skill)
+        skills.push(skill)
       }
     }
   }
@@ -98,6 +136,7 @@ export default defineEventHandler(async () => {
   // 3. GitHub-imported skills
   const githubDir = resolveClaudePath('github')
   if (existsSync(githubDir)) {
+    const { readImportsRegistry } = await import('../../utils/github')
     const registry = await readImportsRegistry()
 
     for (const entry of registry.imports) {
@@ -153,14 +192,16 @@ export default defineEventHandler(async () => {
             const { frontmatter, body } = parseFrontmatter<SkillFrontmatter>(raw)
             if (!frontmatter.name || !frontmatter.description) continue
 
-            skills.push({
+            const skill: Skill = {
               slug: s.slug,
               frontmatter: { name: s.slug, ...frontmatter },
               body,
               filePath: localSkillFilePath,
               source: 'github',
               githubRepo: `${entry.owner}/${entry.repo}`,
-            })
+            }
+            await attachMetadata(skill)
+            skills.push(skill)
           }
 
           continue
@@ -212,14 +253,16 @@ export default defineEventHandler(async () => {
           if (slugClaimed(slug)) continue
           if (dedup.has(slug)) continue
 
-          dedup.set(slug, {
+          const skill: Skill = {
             slug,
             frontmatter: { name: slug, ...frontmatter },
             body,
             filePath: fullPath,
             source: 'github',
             githubRepo: `${entry.owner}/${entry.repo}`,
-          })
+          }
+          await attachMetadata(skill)
+          dedup.set(slug, skill)
         }
       }
 

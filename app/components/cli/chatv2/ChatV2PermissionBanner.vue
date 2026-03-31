@@ -66,7 +66,7 @@ function handleDeny() {
       </button>
       <button
         class="px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all"
-        style="background: var(--surface); color: var(--text-secondary); border: 1px solid var(--border-subtle);"
+        style="background: var(--surface-raised); color: var(--text-secondary); border: 1px solid var(--border-subtle);"
         @click="handleAllowRemember"
       >
         Allow & Remember
