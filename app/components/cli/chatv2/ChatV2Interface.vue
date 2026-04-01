@@ -784,97 +784,98 @@ function handleOpenFile(filePath: string) {
           }"
           @scroll="handleMessagesScroll"
         >
-          <div class="max-w-[800px] mx-auto w-full px-4 py-4 space-y-4">
-          <!-- Loading state for creating new session -->
-          <div v-if="isCreatingSession" class="flex items-center justify-center h-full">
-            <div class="text-center">
-              <UIcon name="i-lucide-loader-2" class="size-8 animate-spin mb-3" style="color: var(--accent);" />
-              <p class="text-[13px]" style="color: var(--text-secondary);">Creating new chat...</p>
-            </div>
-          </div>
-
-          <!-- Loading state for history (only show for initial load, not when loading more) -->
-          <div v-else-if="viewMode === 'history' && isLoadingHistoryWithDelay && !isLoadingMore" class="flex items-center justify-center h-full">
-            <div class="text-center">
-              <UIcon name="i-lucide-loader-2" class="size-8 animate-spin mb-3" style="color: var(--text-secondary);" />
-              <p class="text-[13px]" style="color: var(--text-secondary);">Loading history...</p>
-            </div>
-          </div>
-
-          <!-- Welcome / Select State -->
-          <div v-else-if="viewMode === 'live' && !isLiveChat && !currentSessionId" class="flex items-center justify-center h-full text-center">
-            <div class="max-w-md px-6">
-              <div class="size-20 mx-auto mb-6 rounded-3xl flex items-center justify-center" style="background: linear-gradient(135deg, rgba(229, 169, 62, 0.1) 0%, rgba(229, 169, 62, 0.05) 100%); border: 1px solid rgba(229, 169, 62, 0.1);">
-                <UIcon :name="urlProjectName ? 'i-lucide-folder-root' : 'i-lucide-terminal'" class="size-10" style="color: var(--accent);" />
+          <!-- Centered content column -->
+          <div class="max-w-[800px] mx-auto w-full px-4 py-4 space-y-4 min-h-full">
+              <!-- Loading state for creating new session -->
+            <div v-if="isCreatingSession" class="flex items-center justify-center h-full">
+              <div class="text-center">
+                <UIcon name="i-lucide-loader-2" class="size-8 animate-spin mb-3" style="color: var(--accent);" />
+                <p class="text-[13px]" style="color: var(--text-secondary);">Creating new chat...</p>
               </div>
-              <h2 class="text-[20px] font-semibold mb-3" style="color: var(--text-primary); font-family: var(--font-sans);">
-                {{ urlProjectName ? currentProjectDisplayName : 'Claude Code CLI' }}
-              </h2>
-              <p class="text-[14px] leading-relaxed mb-8" style="color: var(--text-secondary);">
-                {{ urlProjectName ? 'Select a session from this folder or start a new conversation below.' : 'Select an existing session from the history or start a new conversation to begin.' }}
-              </p>
-              <div class="flex flex-col gap-3">
-                <button
-                  class="w-full py-2.5 rounded-xl font-medium transition-all flex items-center justify-center gap-2"
-                  style="background: var(--accent); color: white;"
-                  @click="handleNewChat({ workingDir: localWorkingDir })"
-                >
-                  <UIcon name="i-lucide-plus" class="size-4" />
-                  Start a New Chat {{ urlProjectName ? 'in Folder' : '' }}
-                </button>
-                <p v-if="!urlProjectName" class="text-[11px]" style="color: var(--text-tertiary);">
-                  Browse your project history in the left sidebar
+            </div>
+
+            <!-- Loading state for history (only show for initial load, not when loading more) -->
+            <div v-else-if="viewMode === 'history' && isLoadingHistoryWithDelay && !isLoadingMore" class="flex items-center justify-center h-full">
+              <div class="text-center">
+                <UIcon name="i-lucide-loader-2" class="size-8 animate-spin mb-3" style="color: var(--text-secondary);" />
+                <p class="text-[13px]" style="color: var(--text-secondary);">Loading history...</p>
+              </div>
+            </div>
+
+            <!-- Welcome / Select State -->
+            <div v-else-if="viewMode === 'live' && !isLiveChat && !currentSessionId" class="flex items-center justify-center h-full text-center">
+              <div class="max-w-md px-6">
+                <div class="size-20 mx-auto mb-6 rounded-3xl flex items-center justify-center" style="background: linear-gradient(135deg, rgba(229, 169, 62, 0.1) 0%, rgba(229, 169, 62, 0.05) 100%); border: 1px solid rgba(229, 169, 62, 0.1);">
+                  <UIcon :name="urlProjectName ? 'i-lucide-folder-root' : 'i-lucide-terminal'" class="size-10" style="color: var(--accent);" />
+                </div>
+                <h2 class="text-[20px] font-semibold mb-3" style="color: var(--text-primary); font-family: var(--font-sans);">
+                  {{ urlProjectName ? currentProjectDisplayName : 'Claude Code CLI' }}
+                </h2>
+                <p class="text-[14px] leading-relaxed mb-8" style="color: var(--text-secondary);">
+                  {{ urlProjectName ? 'Select a session from this folder or start a new conversation below.' : 'Select an existing session from the history or start a new conversation to begin.' }}
+                </p>
+                <div class="flex flex-col gap-3">
+                  <button
+                    class="w-full py-2.5 rounded-xl font-medium transition-all flex items-center justify-center gap-2"
+                    style="background: var(--accent); color: white;"
+                    @click="handleNewChat({ workingDir: localWorkingDir })"
+                  >
+                    <UIcon name="i-lucide-plus" class="size-4" />
+                    Start a New Chat {{ urlProjectName ? 'in Folder' : '' }}
+                  </button>
+                  <p v-if="!urlProjectName" class="text-[11px]" style="color: var(--text-tertiary);">
+                    Browse your project history in the left sidebar
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Empty state -->
+            <div v-else-if="displayMessages.length === 0 && !isStreaming && !isLoadingClaudeCodeMessages && !isLoadingHistoryWithDelay" class="flex items-center justify-center h-full">
+              <div class="text-center max-w-md">
+                <div class="size-16 mx-auto mb-4 rounded-full flex items-center justify-center" style="background: var(--surface-raised);">
+                  <UIcon :name="viewMode === 'history' ? 'i-lucide-history' : 'i-lucide-message-circle'" class="size-8" style="color: var(--text-secondary);" />
+                </div>
+                <h2 class="text-[16px] font-semibold mb-2" style="color: var(--text-primary);">
+                  {{ viewMode === 'history' ? 'No Messages Found' : 'Start a Conversation' }}
+                </h2>
+                <p class="text-[13px]" style="color: var(--text-secondary);">
+                  {{ viewMode === 'history' ? 'This session has no displayable messages.' : 'Ask Claude anything. Your message will create a new session automatically.' }}
                 </p>
               </div>
             </div>
-          </div>
 
-          <!-- Empty state -->
-          <div v-else-if="displayMessages.length === 0 && !isStreaming && !isLoadingClaudeCodeMessages && !isLoadingHistoryWithDelay" class="flex items-center justify-center h-full">
-            <div class="text-center max-w-md">
-              <div class="size-16 mx-auto mb-4 rounded-full flex items-center justify-center" style="background: var(--surface-raised);">
-                <UIcon :name="viewMode === 'history' ? 'i-lucide-history' : 'i-lucide-message-circle'" class="size-8" style="color: var(--text-secondary);" />
+            <!-- Message list -->
+            <template v-else>
+              <!-- Loading more indicator at top -->
+              <div
+                v-if="viewMode === 'history' && isLoadingMore"
+                class="flex items-center justify-center py-4"
+              >
+                <UIcon name="i-lucide-loader-2" class="size-4 animate-spin mr-2" style="color: var(--text-secondary);" />
+                <span class="text-[12px]" style="color: var(--text-secondary);">Loading older messages...</span>
               </div>
-              <h2 class="text-[16px] font-semibold mb-2" style="color: var(--text-primary);">
-                {{ viewMode === 'history' ? 'No Messages Found' : 'Start a Conversation' }}
-              </h2>
-              <p class="text-[13px]" style="color: var(--text-secondary);">
-                {{ viewMode === 'history' ? 'This session has no displayable messages.' : 'Ask Claude anything. Your message will create a new session automatically.' }}
-              </p>
-            </div>
-          </div>
 
-          <!-- Message list -->
-          <template v-else>
-            <!-- Loading more indicator at top -->
-            <div
-              v-if="viewMode === 'history' && isLoadingMore"
-              class="flex items-center justify-center py-4"
-            >
-              <UIcon name="i-lucide-loader-2" class="size-4 animate-spin mr-2" style="color: var(--text-secondary);" />
-              <span class="text-[12px]" style="color: var(--text-secondary);">Loading older messages...</span>
-            </div>
+              <!-- Scroll to top hint when more messages available -->
+              <div
+                v-else-if="viewMode === 'history' && claudeCodeMessagesHasMore && !isLoadingMore"
+                class="flex items-center justify-center py-2"
+              >
+                <span class="text-[11px]" style="color: var(--text-tertiary);">
+                  ↑ Scroll up for older messages
+                </span>
+              </div>
 
-            <!-- Scroll to top hint when more messages available -->
-            <div
-              v-else-if="viewMode === 'history' && claudeCodeMessagesHasMore && !isLoadingMore"
-              class="flex items-center justify-center py-2"
-            >
-              <span class="text-[11px]" style="color: var(--text-tertiary);">
-                ↑ Scroll up for older messages
-              </span>
-            </div>
+              <ChatV2Messages
+                :messages="displayMessages"
+                :is-streaming="isStreaming"
+                @permission-respond="handlePermissionResponse"
+                @open-file="handleOpenFile"
+              />
 
-            <ChatV2Messages
-              :messages="displayMessages"
-              :is-streaming="isStreaming"
-              @permission-respond="handlePermissionResponse"
-              @open-file="handleOpenFile"
-            />
-
-            <!-- Spacer to ensure last messages can scroll above the blurry toggle -->
-            <div class="h-12 shrink-0" />
-          </template>
+              <!-- Spacer to ensure last messages can scroll above the blurry toggle -->
+              <div class="h-12 shrink-0" />
+            </template>
           </div>
         </div>
 
