@@ -53,8 +53,9 @@ export default defineEventHandler(async (event) => {
     config.command = command
     config.args = Array.isArray(args) ? args : []
     config.env = typeof env === 'object' && env !== null ? env : {}
-  } else if (transport === 'sse') {
+  } else if (transport === 'sse' || transport === 'http') {
     if (!url) throw createError({ statusCode: 400, message: 'URL is required for sse transport' })
+    config.type = 'http'
     config.url = url
     config.headers = typeof headers === 'object' && headers !== null ? headers : {}
   } else {
