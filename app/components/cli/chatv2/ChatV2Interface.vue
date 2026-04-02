@@ -465,6 +465,13 @@ watch(currentSessionId, async (newId, oldId) => {
           currentSessionSummary.value = newSession.summary
           history.selectedSession.value = newSession
         }
+
+        // Update URL to reflect the newly created session
+        // Use replace:true so back button skips the "new chat" empty state
+        await navigateTo(
+          `/cli/project/${encodeURIComponent(matchingProject.name)}/session/${encodeURIComponent(newId)}`,
+          { replace: true }
+        )
       } else {
         // If not matching any project yet, we could still refresh projects
         // in case a new project folder was created by the SDK
