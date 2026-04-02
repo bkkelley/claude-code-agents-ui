@@ -46,6 +46,58 @@ const {
   deleteSession
 } = history
 
+// Handle project renamed
+async function handleProjectRenamed(payload: { projectName: string; newName: string }) {
+  console.log('[ChatV2] Project renaming:', payload)
+  try {
+    await history.renameProject(payload.projectName, payload.newName)
+
+    // Update local state if this is the current project
+    if (urlProjectName.value === payload.projectName) {
+      currentProjectDisplayName.value = payload.newName
+    }
+
+    toast.add({
+      title: 'Project renamed',
+      color: 'success',
+      duration: 2000
+    })
+  } catch (e: any) {
+    console.error('[ChatV2] Failed to rename project:', e)
+    toast.add({
+      title: 'Failed to rename project',
+      description: e.data?.message || e.message,
+      color: 'error'
+    })
+  }
+}
+
+// Handle project deleted
+async function handleProjectDeleted(payload: { projectName: string }) {
+  console.log('[ChatV2] Project deleting:', payload)
+  try {
+    await history.deleteProject(payload.projectName)
+
+    // If the deleted project is currently selected, clear selection
+    if (urlProjectName.value === payload.projectName) {
+      handleSelectionCleared()
+    }
+
+    toast.add({
+      title: 'Project history deleted',
+      color: 'success',
+      duration: 2000
+    })
+  } catch (e: any) {
+    console.error('[ChatV2] Failed to delete project:', e)
+    toast.add({
+      title: 'Failed to delete project',
+      description: e.data?.message || e.message,
+      color: 'error'
+    })
+  }
+}
+
 // Session list
 const sessions = ref<any[]>([])
 const isLoadingSessions = ref(false)
@@ -703,6 +755,8 @@ function handleOpenFile(filePath: string) {
         @toggle-collapse="sidebarCollapsed = !sidebarCollapsed"
         @session-renamed="handleSessionRenamed"
         @session-deleted="handleSessionDeleted"
+        @project-renamed="handleProjectRenamed"
+        @project-deleted="handleProjectDeleted"
       />
     </div>
 

@@ -60,6 +60,13 @@ interface SessionNames {
   }
 }
 
+interface ProjectNames {
+  [projectName: string]: {
+    displayName: string
+    updatedAt: string
+  }
+}
+
 /**
  * Load custom session names from storage
  */
@@ -78,6 +85,27 @@ async function loadSessionNames(): Promise<SessionNames> {
  */
 async function saveSessionNames(names: SessionNames): Promise<void> {
   const filePath = join(getClaudeDir(), 'custom-session-names.json')
+  await fs.writeFile(filePath, JSON.stringify(names, null, 2), 'utf8')
+}
+
+/**
+ * Load custom project names from storage
+ */
+async function loadProjectNames(): Promise<ProjectNames> {
+  const filePath = join(getClaudeDir(), 'custom-project-names.json')
+  try {
+    const data = await fs.readFile(filePath, 'utf8')
+    return JSON.parse(data) as ProjectNames
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Save custom project names to storage
+ */
+async function saveProjectNames(names: ProjectNames): Promise<void> {
+  const filePath = join(getClaudeDir(), 'custom-project-names.json')
   await fs.writeFile(filePath, JSON.stringify(names, null, 2), 'utf8')
 }
 
@@ -105,6 +133,29 @@ export async function deleteSessionName(sessionId: string): Promise<void> {
 }
 
 /**
+ * Set a custom name for a project
+ */
+export async function setProjectName(projectName: string, displayName: string): Promise<void> {
+  const names = await loadProjectNames()
+  names[projectName] = {
+    displayName,
+    updatedAt: new Date().toISOString()
+  }
+  await saveProjectNames(names)
+}
+
+/**
+ * Delete a custom name for a project
+ */
+export async function deleteProjectName(projectName: string): Promise<void> {
+  const names = await loadProjectNames()
+  if (names[projectName]) {
+    delete names[projectName]
+    await saveProjectNames(names)
+  }
+}
+
+/**
  * Apply custom names to sessions
  */
 async function applyCustomSessionNames(sessions: ClaudeCodeSession[]): Promise<void> {
@@ -113,6 +164,19 @@ async function applyCustomSessionNames(sessions: ClaudeCodeSession[]): Promise<v
   for (const session of sessions) {
     if (names[session.id]) {
       session.summary = names[session.id].summary
+    }
+  }
+}
+
+/**
+ * Apply custom names to projects
+ */
+async function applyCustomProjectNames(projects: ClaudeCodeProject[]): Promise<void> {
+  if (projects.length === 0) return
+  const names = await loadProjectNames()
+  for (const project of projects) {
+    if (names[project.name]) {
+      project.displayName = names[project.name].displayName
     }
   }
 }
@@ -281,6 +345,8 @@ export async function getClaudeCodeProjects(): Promise<ClaudeCodeProject[]> {
         sessionCount: jsonlFiles.length
       })
     }
+
+    await applyCustomProjectNames(projects)
 
     // Sort by last activity (newest first)
     projects.sort((a, b) => {
@@ -695,6 +761,38 @@ export async function renameClaudeCodeSession(projectName: string, sessionId: st
     return renamed
   } catch (error) {
     console.error(`Error renaming session ${sessionId} in project ${projectName}:`, error)
+    return false
+  }
+}
+
+/**
+ * Delete a Claude Code project (folder)
+ */
+export async function deleteClaudeCodeProject(projectName: string): Promise<boolean> {
+  const projectDir = join(getClaudeProjectsDir(), projectName)
+  
+  // Remove from custom names store
+  await deleteProjectName(projectName)
+
+  try {
+    await fs.rm(projectDir, { recursive: true, force: true })
+    return true
+  } catch (error) {
+    console.error(`Error deleting project ${projectName}:`, error)
+    return false
+  }
+}
+
+/**
+ * Rename a Claude Code project (display name)
+ */
+export async function renameClaudeCodeProject(projectName: string, newDisplayName: string): Promise<boolean> {
+  try {
+    // We only change the display name in our custom store
+    await setProjectName(projectName, newDisplayName)
+    return true
+  } catch (error) {
+    console.error(`Error renaming project ${projectName}:`, error)
     return false
   }
 }

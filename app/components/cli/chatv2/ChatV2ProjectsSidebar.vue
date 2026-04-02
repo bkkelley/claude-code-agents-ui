@@ -9,6 +9,8 @@ const emit = defineEmits<{
   (e: 'toggleCollapse'): void
   (e: 'sessionRenamed', payload: { projectName: string; sessionId: string; newName: string }): void
   (e: 'sessionDeleted', payload: { projectName: string; sessionId: string }): void
+  (e: 'projectRenamed', payload: { projectName: string; newName: string }): void
+  (e: 'projectDeleted', payload: { projectName: string }): void
 }>()
 
 const props = defineProps<{
@@ -180,8 +182,59 @@ const editInputRef = ref<HTMLInputElement | null>(null)
 
 // Delete confirmation state
 const showDeleteModal = ref(false)
+const deleteType = ref<'session' | 'project'>('session')
 const deleteSessionId = ref<string | null>(null)
-const deleteSessionName = ref('')
+const deleteProjectName = ref<string | null>(null)
+const deleteItemName = ref('')
+
+// Project editing state
+const editingProjectName = ref<string | null>(null)
+const projectEditInput = ref('')
+const projectEditInputRef = ref<HTMLInputElement | null>(null)
+
+// Start inline editing for project
+function startEditingProject(project: typeof projects.value[0], event: Event) {
+  event.stopPropagation()
+  editingProjectName.value = project.name
+  projectEditInput.value = project.displayName
+  nextTick(() => {
+    const el = projectEditInputRef.value as any
+    if (el) {
+      if (typeof el.focus === 'function') {
+        el.focus()
+        if (typeof el.select === 'function') el.select()
+      } else if (el.$el && typeof el.$el.focus === 'function') {
+        el.$el.focus()
+      }
+    }
+  })
+}
+
+// Save project edit
+function saveProjectEdit() {
+  if (editingProjectName.value && projectEditInput.value.trim()) {
+    emit('projectRenamed', {
+      projectName: editingProjectName.value,
+      newName: projectEditInput.value.trim()
+    })
+  }
+  cancelProjectEdit()
+}
+
+// Cancel project edit
+function cancelProjectEdit() {
+  editingProjectName.value = null
+  projectEditInput.value = ''
+}
+
+// Open delete modal for project
+function openProjectDeleteModal(project: typeof projects.value[0], event: Event) {
+  event.stopPropagation()
+  deleteType.value = 'project'
+  deleteProjectName.value = project.name
+  deleteItemName.value = project.displayName
+  showDeleteModal.value = true
+}
 
 // Start inline editing
 function startEditing(session: typeof sessions.value[0], event: Event) {
@@ -224,22 +277,32 @@ function cancelEdit() {
 // Open delete confirmation
 function openDeleteModal(session: typeof sessions.value[0], event: Event) {
   event.stopPropagation()
+  deleteType.value = 'session'
   deleteSessionId.value = session.id
-  deleteSessionName.value = session.summary || 'this session'
+  deleteItemName.value = session.summary || 'this session'
   showDeleteModal.value = true
 }
 
 // Confirm delete
 function confirmDelete() {
-  if (deleteSessionId.value && selectedProject.value) {
-    emit('sessionDeleted', {
-      projectName: selectedProject.value.name,
-      sessionId: deleteSessionId.value
-    })
+  if (deleteType.value === 'session') {
+    if (deleteSessionId.value && selectedProject.value) {
+      emit('sessionDeleted', {
+        projectName: selectedProject.value.name,
+        sessionId: deleteSessionId.value
+      })
+    }
+  } else {
+    if (deleteProjectName.value) {
+      emit('projectDeleted', {
+        projectName: deleteProjectName.value
+      })
+    }
   }
   showDeleteModal.value = false
   deleteSessionId.value = null
-  deleteSessionName.value = ''
+  deleteProjectName.value = null
+  deleteItemName.value = ''
 }
 </script>
 
@@ -363,14 +426,64 @@ function confirmDelete() {
         >
           <div class="flex items-center gap-2 mb-0.5 min-w-0">
             <UIcon name="i-lucide-folder" class="size-3.5 shrink-0" style="color: var(--accent);" />
-            <span class="text-[12px] font-medium break-words flex-1 min-w-0" style="color: var(--text-primary);">
-              {{ project.displayName }}
-            </span>
-            <UIcon
-              name="i-lucide-chevron-right"
-              class="size-3.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-              style="color: var(--text-tertiary);"
-            />
+            
+            <!-- Inline project edit mode -->
+            <template v-if="editingProjectName === project.name">
+              <div class="flex items-center gap-1 flex-1 min-w-0" @click.stop>
+                <input
+                  ref="projectEditInputRef"
+                  v-model="projectEditInput"
+                  class="flex-1 min-w-0 px-1.5 py-0.5 rounded text-[12px] font-medium outline-none"
+                  style="background: var(--surface-raised); border: 1px solid var(--accent); color: var(--text-primary);"
+                  @keyup.enter="saveProjectEdit"
+                  @keyup.escape="cancelProjectEdit"
+                />
+                <button
+                  class="p-1 rounded hover:bg-green-500/20 transition-colors shrink-0"
+                  title="Save"
+                  @click.stop="saveProjectEdit"
+                >
+                  <UIcon name="i-lucide-check" class="size-3.5" style="color: #22c55e;" />
+                </button>
+                <button
+                  class="p-1 rounded hover:bg-red-500/10 transition-colors shrink-0"
+                  title="Cancel"
+                  @click.stop="cancelProjectEdit"
+                >
+                  <UIcon name="i-lucide-x" class="size-3.5" style="color: var(--text-tertiary);" />
+                </button>
+              </div>
+            </template>
+
+            <!-- Normal project title -->
+            <template v-else>
+              <span class="text-[12px] font-medium break-words flex-1 min-w-0" style="color: var(--text-primary);">
+                {{ project.displayName }}
+              </span>
+              
+              <!-- Project Action icons -->
+              <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <button
+                  class="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                  title="Rename folder"
+                  @click.stop="startEditingProject(project, $event)"
+                >
+                  <UIcon name="i-lucide-pencil" class="size-3" style="color: var(--text-tertiary);" />
+                </button>
+                <button
+                  class="p-1 rounded hover:bg-red-500/10 transition-colors"
+                  title="Delete folder history"
+                  @click.stop="openProjectDeleteModal(project, $event)"
+                >
+                  <UIcon name="i-lucide-trash-2" class="size-3" style="color: var(--error, #ef4444);" />
+                </button>
+                <UIcon
+                  name="i-lucide-chevron-right"
+                  class="size-3.5 shrink-0"
+                  style="color: var(--text-tertiary);"
+                />
+              </div>
+            </template>
           </div>
           <!-- Directory path -->
           <div
@@ -548,12 +661,18 @@ function confirmDelete() {
                 <UIcon name="i-lucide-alert-triangle" class="size-5 text-red-500" />
               </div>
               <h3 class="text-[16px] font-bold" style="color: var(--text-primary);">
-                Delete Session
+                Delete {{ deleteType === 'session' ? 'Session' : 'Project' }}
               </h3>
             </div>
             
             <p class="text-[13px] leading-relaxed mb-6" style="color: var(--text-secondary);">
-              Are you sure you want to delete <span class="font-medium text-[var(--text-primary)]">"{{ truncate(deleteSessionName, 60) }}"</span>? This action cannot be undone and all messages will be permanently lost.
+              Are you sure you want to delete <span class="font-medium text-[var(--text-primary)]">"{{ truncate(deleteItemName, 60) }}"</span>? 
+              <template v-if="deleteType === 'project'">
+                This will permanently delete all chat history for this folder from the UI.
+              </template>
+              <template v-else>
+                This action cannot be undone and all messages will be permanently lost.
+              </template>
             </p>
             
             <div class="flex items-center justify-end gap-3">
@@ -569,7 +688,7 @@ function confirmDelete() {
                 style="background: var(--error); color: white; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);"
                 @click="confirmDelete"
               >
-                Delete Session
+                Delete {{ deleteType === 'session' ? 'Session' : 'History' }}
               </button>
             </div>
           </div>

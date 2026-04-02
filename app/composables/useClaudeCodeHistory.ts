@@ -77,6 +77,54 @@ export function useClaudeCodeHistory() {
   }
 
   /**
+   * Rename a project (folder)
+   */
+  async function renameProject(projectName: string, newDisplayName: string) {
+    try {
+      await $fetch(`/api/projects/${encodeURIComponent(projectName)}/rename`, {
+        method: 'PUT',
+        body: { displayName: newDisplayName }
+      })
+
+      // Update local state
+      const project = projects.value.find(p => p.name === projectName)
+      if (project) {
+        project.displayName = newDisplayName
+      }
+      if (selectedProject.value?.name === projectName) {
+        selectedProject.value.displayName = newDisplayName
+      }
+      return true
+    } catch (error) {
+      console.error('Failed to rename project:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Delete a project (folder)
+   */
+  async function deleteProject(projectName: string) {
+    try {
+      await $fetch(`/api/projects/${encodeURIComponent(projectName)}`, {
+        method: 'DELETE'
+      })
+
+      // Update local state
+      projects.value = projects.value.filter(p => p.name !== projectName)
+      
+      if (selectedProject.value?.name === projectName) {
+        clearSelection()
+      }
+      
+      return true
+    } catch (error) {
+      console.error('Failed to delete project:', error)
+      throw error
+    }
+  }
+
+  /**
    * Fetch sessions for a specific project
    */
   async function fetchSessions(projectName: string, limit = 20, offset = 0) {
@@ -305,6 +353,8 @@ export function useClaudeCodeHistory() {
     fetchProjects,
     fetchSessions,
     fetchMessages,
+    renameProject,
+    deleteProject,
     renameSession,
     deleteSession,
     selectProject,
