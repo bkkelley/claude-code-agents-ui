@@ -15,7 +15,8 @@ const props = defineProps<{
 // Toast for notifications
 const toast = useToast()
 
-// No URL routing - all navigation handled via internal state
+// Route for URL-based session navigation
+const route = useRoute()
 
 // Chat v2 handler with integrated streaming, permissions, and session store
 const {
@@ -32,6 +33,7 @@ const {
   abort,
   respondToPermission,
   sessionStore,
+  setCurrentSessionId,
   contextMonitor,
 } = useChatV2Handler()
 
@@ -45,6 +47,58 @@ const {
   renameSession,
   deleteSession
 } = history
+
+// Handle project renamed
+async function handleProjectRenamed(payload: { projectName: string; newName: string }) {
+  console.log('[ChatV2] Project renaming:', payload)
+  try {
+    await history.renameProject(payload.projectName, payload.newName)
+
+    // Update local state if this is the current project
+    if (urlProjectName.value === payload.projectName) {
+      currentProjectDisplayName.value = payload.newName
+    }
+
+    toast.add({
+      title: 'Project renamed',
+      color: 'success',
+      duration: 2000
+    })
+  } catch (e: any) {
+    console.error('[ChatV2] Failed to rename project:', e)
+    toast.add({
+      title: 'Failed to rename project',
+      description: e.data?.message || e.message,
+      color: 'error'
+    })
+  }
+}
+
+// Handle project deleted
+async function handleProjectDeleted(payload: { projectName: string }) {
+  console.log('[ChatV2] Project deleting:', payload)
+  try {
+    await history.deleteProject(payload.projectName)
+
+    // If the deleted project is currently selected, clear selection
+    if (urlProjectName.value === payload.projectName) {
+      handleSelectionCleared()
+    }
+
+    toast.add({
+      title: 'Project history deleted',
+      color: 'success',
+      duration: 2000
+    })
+  } catch (e: any) {
+    console.error('[ChatV2] Failed to delete project:', e)
+    toast.add({
+      title: 'Failed to delete project',
+      description: e.data?.message || e.message,
+      color: 'error'
+    })
+  }
+}
 
 // Session list
 const sessions = ref<any[]>([])
@@ -211,25 +265,32 @@ const thinkingEnabled = ref(false)
 
 // Get display messages - either from live session or Claude Code history
 const displayMessages = computed<DisplayChatMessage[]>(() => {
-  // If continuing a history session, combine history + new live messages
-  if (isContinuingHistory.value && currentSessionId.value) {
+  // Determine which session ID to use for live messages
+  const liveSessionId = currentSessionId.value || urlSessionId.value
+
+  // If viewing Claude Code history
+  if (viewMode.value === 'history') {
     const historyMessages = convertClaudeCodeMessages(claudeCodeMessages.value)
-    const liveMessages = sessionStore.getMessages(currentSessionId.value)
-    const newMessages = convertToDisplayMessages(liveMessages, streamingText.value)
-    return [...historyMessages, ...newMessages]
+    
+    // Always check for live messages if we have a session ID
+    if (liveSessionId) {
+      const liveMessages = sessionStore.getMessages(liveSessionId)
+      // If we have live messages or streaming text, combine them
+      if (liveMessages.length > 0 || streamingText.value) {
+        const newMessages = convertToDisplayMessages(liveMessages, streamingText.value)
+        return [...historyMessages, ...newMessages]
+      }
+    }
+    
+    return historyMessages
   }
 
-  // If viewing Claude Code history (not continuing)
-  if (viewMode.value === 'history' && claudeCodeMessages.value.length > 0) {
-    return convertClaudeCodeMessages(claudeCodeMessages.value)
-  }
-
-  // Live session - only show messages from active session, no fallback to 'pending'
-  if (!currentSessionId.value) {
+  // Live session only (new chat)
+  if (!liveSessionId) {
     return []
   }
 
-  const messages = sessionStore.getMessages(currentSessionId.value)
+  const messages = sessionStore.getMessages(liveSessionId)
   return convertToDisplayMessages(messages, streamingText.value)
 })
 
@@ -249,57 +310,77 @@ watch(error, (newError) => {
   }
 })
 
-// Handle Claude Code project selection (no URL navigation)
+// Handle Claude Code project selection
 function handleClaudeCodeProjectSelected(payload: { projectName: string; projectDisplayName: string }) {
   urlProjectName.value = payload.projectName
   urlSessionId.value = null
+  setCurrentSessionId(null) // Clear active session
   currentSessionSummary.value = ''
   currentProjectDisplayName.value = payload.projectDisplayName
-  
+
   // Ensure we are in live view mode but haven't started a chat yet
   viewMode.value = 'live'
   isLiveChat.value = false
-  
+
   // Clear any history selection in shared state
   history.selectedSession.value = null
+
+  // Update URL to reflect selected project
+  const targetPath = `/cli/project/${encodeURIComponent(payload.projectName)}`
+  if (route.path !== targetPath) {
+    navigateTo(targetPath, { replace: false })
+  }
 }
 
 // Utility: delay for minimum loading time
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-// Scroll to bottom helper
-function scrollToBottom(behavior: ScrollBehavior = 'auto') {
-  nextTick(() => {
-    if (!messagesContainerRef.value) return
-    messagesContainerRef.value.scrollTop = messagesContainerRef.value.scrollHeight
-
-    // Use a small timeout to handle layout shifts from async rendering (images, code blocks)
-    setTimeout(() => {
-      if (messagesContainerRef.value) {
-        messagesContainerRef.value.scrollTo({
-          top: messagesContainerRef.value.scrollHeight,
-          behavior
-        })
+// Scroll to bottom helper — returns a Promise that resolves once scroll + layout settle
+function scrollToBottom(behavior: ScrollBehavior = 'auto'): Promise<void> {
+  return new Promise(resolve => {
+    nextTick(() => {
+      if (!messagesContainerRef.value) {
+        isInitialScroll.value = false
+        resolve()
+        return
       }
-      // Finished scrolling - make container visible if it was hidden
-      isInitialScroll.value = false
-    }, 150)
+      messagesContainerRef.value.scrollTop = messagesContainerRef.value.scrollHeight
+
+      // Wait for layout shifts from async rendering (markdown, code blocks, images)
+      // 300ms gives enough time for most content to fully render and calculate heights
+      setTimeout(() => {
+        if (messagesContainerRef.value) {
+          messagesContainerRef.value.scrollTo({
+            top: messagesContainerRef.value.scrollHeight,
+            behavior
+          })
+        }
+        // Make container visible — no CSS transition so it appears instantly (no flash)
+        isInitialScroll.value = false
+        resolve()
+      }, 300)
+    })
   })
 }
 
-// Handle Claude Code history session selection (no URL navigation)
+// Handle Claude Code history session selection
 async function handleClaudeCodeSessionSelected(payload: { projectName: string; sessionId: string; sessionSummary: string; projectDisplayName: string }) {
   viewMode.value = 'history'
   isLiveChat.value = false
   urlProjectName.value = payload.projectName
   urlSessionId.value = payload.sessionId
+  setCurrentSessionId(payload.sessionId) // Sync active session
   currentSessionSummary.value = payload.sessionSummary
   currentProjectDisplayName.value = payload.projectDisplayName
   isContinuingHistory.value = false  // Reset when selecting a new history session
   isInitialScroll.value = true // Set initial scroll flag
+  isLoadingHistoryWithDelay.value = true // Show spinner before any awaits to avoid blank gap
 
-  // Start loading with minimum duration
-  isLoadingHistoryWithDelay.value = true
+  // Update URL only if not already there (avoids redundant navigation when triggered by route watcher)
+  const targetPath = `/cli/project/${encodeURIComponent(payload.projectName)}/session/${encodeURIComponent(payload.sessionId)}`
+  if (route.path !== targetPath) {
+    await navigateTo(targetPath, { replace: false })
+  }
 
   // Load messages with minimum 1000ms delay for smooth UX
   const [historyResult] = await Promise.all([
@@ -313,11 +394,10 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
     contextMonitor.resetMetrics()
   }
 
-  // End loading state
+  // Scroll to bottom first — waits for layout to settle and makes messages visible
+  // Only then hide the spinner so there's no blank flash between loader and content
+  await scrollToBottom()
   isLoadingHistoryWithDelay.value = false
-
-  // Scroll to bottom (latest messages) after loading
-  scrollToBottom()
 }
 
 // Handle selection cleared (back to projects list)
@@ -326,10 +406,14 @@ function handleSelectionCleared() {
   isLiveChat.value = false
   urlProjectName.value = null
   urlSessionId.value = null
+  setCurrentSessionId(null) // Clear active session
   currentSessionSummary.value = ''
   currentProjectDisplayName.value = ''
   isContinuingHistory.value = false
   contextMonitor.resetMetrics()
+  if (route.path !== '/cli') {
+    navigateTo('/cli', { replace: false })
+  }
 }
 
 // Handle new chat - switch to live mode without affecting sidebar
@@ -340,6 +424,7 @@ function handleNewChat(payload?: { workingDir?: string; projectDisplayName?: str
   isLiveChat.value = true
   urlProjectName.value = null
   urlSessionId.value = null
+  setCurrentSessionId(null) // Clear active session
   currentSessionSummary.value = ''
   currentProjectDisplayName.value = payload?.projectDisplayName || ''
   isContinuingHistory.value = false
@@ -360,6 +445,10 @@ function handleNewChat(payload?: { workingDir?: string; projectDisplayName?: str
   } else {
     // Reset to prop's default if not provided
     localWorkingDir.value = props.executionOptions.workingDir || ''
+  }
+
+  if (route.path !== '/cli') {
+    navigateTo('/cli', { replace: false })
   }
 }
 
@@ -399,6 +488,13 @@ watch(currentSessionId, async (newId, oldId) => {
           currentSessionSummary.value = newSession.summary
           history.selectedSession.value = newSession
         }
+
+        // Update URL to reflect the newly created session
+        // Use replace:true so back button skips the "new chat" empty state
+        await navigateTo(
+          `/cli/project/${encodeURIComponent(matchingProject.name)}/session/${encodeURIComponent(newId)}`,
+          { replace: true }
+        )
       } else {
         // If not matching any project yet, we could still refresh projects
         // in case a new project folder was created by the SDK
@@ -407,6 +503,55 @@ watch(currentSessionId, async (newId, oldId) => {
     }
   }
 })
+
+// Deep link / browser nav: sync URL params → internal session state
+// Runs on mount (immediate) and whenever route params or projects change (browser back/forward)
+watch(
+  () => ({
+    projectName: route.params.projectName as string | undefined,
+    sessionId: route.params.sessionId as string | undefined,
+    projectsLoaded: history.projects.value.length > 0,
+  }),
+  async ({ projectName, sessionId, projectsLoaded }) => {
+    // No params — nothing to restore
+    if (!projectName) return
+
+    // Wait for projects to be loaded before resolving metadata
+    if (!projectsLoaded) return
+
+    const project = history.projects.value.find(p => p.name === projectName)
+    const projectDisplayName = project?.displayName || projectName
+
+    if (sessionId) {
+      // Full session URL: /cli/project/:projectName/session/:sessionId
+      // Guard: already showing this session
+      if (urlProjectName.value === projectName && urlSessionId.value === sessionId) return
+
+      // Fetch sessions for this project if not already loaded
+      if (history.selectedProject.value?.name !== projectName) {
+        history.selectedProject.value = project || null
+        await history.fetchSessions(projectName)
+      }
+
+      const session = history.sessions.value.find(s => s.id === sessionId)
+      const sessionSummary = session?.summary || ''
+
+      await handleClaudeCodeSessionSelected({
+        projectName,
+        sessionId,
+        sessionSummary,
+        projectDisplayName,
+      })
+    } else {
+      // Project-only URL: /cli/project/:projectName
+      // Guard: already showing this project with no session
+      if (urlProjectName.value === projectName && !urlSessionId.value) return
+
+      handleClaudeCodeProjectSelected({ projectName, projectDisplayName })
+    }
+  },
+  { immediate: true }
+)
 
 // Debounce timer for history refreshes during live chat
 let refreshTimer: NodeJS.Timeout | null = null
@@ -703,6 +848,8 @@ function handleOpenFile(filePath: string) {
         @toggle-collapse="sidebarCollapsed = !sidebarCollapsed"
         @session-renamed="handleSessionRenamed"
         @session-deleted="handleSessionDeleted"
+        @project-renamed="handleProjectRenamed"
+        @project-deleted="handleProjectDeleted"
       />
     </div>
 
@@ -810,9 +957,23 @@ function handleOpenFile(filePath: string) {
 
       <!-- Messages Area -->
       <div class="flex-1 relative min-h-0 min-w-0 overflow-x-hidden">
+        <!-- Loading spinners live outside the opacity-controlled container so they're always visible -->
+        <div v-if="isCreatingSession" class="absolute inset-0 flex items-center justify-center z-10" :style="{ background: 'var(--surface-base)' }">
+          <div class="text-center">
+            <UIcon name="i-lucide-loader-2" class="size-8 animate-spin mb-3" style="color: var(--accent);" />
+            <p class="text-[13px]" style="color: var(--text-secondary);">Creating new chat...</p>
+          </div>
+        </div>
+        <div v-else-if="viewMode === 'history' && isLoadingHistoryWithDelay && !isLoadingMore" class="absolute inset-0 flex items-center justify-center z-10" :style="{ background: 'var(--surface-base)' }">
+          <div class="text-center">
+            <UIcon name="i-lucide-loader-2" class="size-8 animate-spin mb-3" style="color: var(--text-secondary);" />
+            <p class="text-[13px]" style="color: var(--text-secondary);">Loading history...</p>
+          </div>
+        </div>
+
         <div
           ref="messagesContainerRef"
-          class="h-full overflow-y-auto overflow-x-hidden transition-opacity duration-200"
+          class="h-full overflow-y-auto overflow-x-hidden"
           :style="{
             background: 'var(--surface-base)',
             opacity: isInitialScroll ? 0 : 1
@@ -821,24 +982,8 @@ function handleOpenFile(filePath: string) {
         >
           <!-- Content column - grows with available space -->
           <div class="max-w-[1200px] mx-auto px-4 py-4 space-y-4 min-h-full min-w-0">
-              <!-- Loading state for creating new session -->
-            <div v-if="isCreatingSession" class="flex items-center justify-center h-full">
-              <div class="text-center">
-                <UIcon name="i-lucide-loader-2" class="size-8 animate-spin mb-3" style="color: var(--accent);" />
-                <p class="text-[13px]" style="color: var(--text-secondary);">Creating new chat...</p>
-              </div>
-            </div>
-
-            <!-- Loading state for history (only show for initial load, not when loading more) -->
-            <div v-else-if="viewMode === 'history' && isLoadingHistoryWithDelay && !isLoadingMore" class="flex items-center justify-center h-full">
-              <div class="text-center">
-                <UIcon name="i-lucide-loader-2" class="size-8 animate-spin mb-3" style="color: var(--text-secondary);" />
-                <p class="text-[13px]" style="color: var(--text-secondary);">Loading history...</p>
-              </div>
-            </div>
-
             <!-- Welcome / Select State -->
-            <div v-else-if="viewMode === 'live' && !isLiveChat && !currentSessionId" class="flex items-center justify-center h-full text-center">
+            <div v-if="viewMode === 'live' && !isLiveChat && !currentSessionId" class="flex items-center justify-center h-full text-center">
               <div class="max-w-md px-6">
                 <div class="size-20 mx-auto mb-6 rounded-3xl flex items-center justify-center" style="background: linear-gradient(135deg, rgba(229, 169, 62, 0.1) 0%, rgba(229, 169, 62, 0.05) 100%); border: 1px solid rgba(229, 169, 62, 0.1);">
                   <UIcon :name="urlProjectName ? 'i-lucide-folder-root' : 'i-lucide-terminal'" class="size-10" style="color: var(--accent);" />
@@ -866,7 +1011,7 @@ function handleOpenFile(filePath: string) {
             </div>
 
             <!-- Empty state -->
-            <div v-else-if="displayMessages.length === 0 && !isStreaming && !isLoadingClaudeCodeMessages && !isLoadingHistoryWithDelay" class="flex items-center justify-center h-full">
+            <div v-else-if="!isLoadingHistoryWithDelay && !isCreatingSession && displayMessages.length === 0 && !isStreaming && !isLoadingClaudeCodeMessages" class="flex items-center justify-center h-full">
               <div class="text-center max-w-md">
                 <div class="size-16 mx-auto mb-4 rounded-full flex items-center justify-center" style="background: var(--surface-raised);">
                   <UIcon :name="viewMode === 'history' ? 'i-lucide-history' : 'i-lucide-message-circle'" class="size-8" style="color: var(--text-secondary);" />

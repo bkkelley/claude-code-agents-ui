@@ -103,7 +103,7 @@ const getStatusColor = () => {
         <span class="text-[11px] font-bold" style="color: var(--accent);">About Context Window</span>
       </div>
       <p class="text-[11px] leading-relaxed" style="color: var(--text-secondary);">
-        The context window includes all messages, files, and tool results currently visible to Claude. When this fills up, Claude may forget older parts of the conversation.
+        The context window includes all messages, files, and tool results currently visible to Claude. When this fills up, Claude may forget older parts of the conversation. And might need to compact the context window.
       </p>
     </div>
   </div>
