@@ -23,7 +23,7 @@ const body = ref('')
 const { hasDraft, draftAge, loadDraft, clearDraft, scheduleSave } = useDraftRecovery(`skill:${slug}`)
 
 watch([frontmatter, body], () => {
-  if (skill.value) scheduleSave(frontmatter.value, body.value)
+  if (skill.value && isDirty.value) scheduleSave(frontmatter.value, body.value)
 }, { deep: true })
 
 function restoreDraft() {

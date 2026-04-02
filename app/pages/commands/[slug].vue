@@ -23,7 +23,7 @@ const allowedToolsStr = ref('')
 const { hasDraft, draftAge, loadDraft, clearDraft, scheduleSave } = useDraftRecovery(`command:${slug}`)
 
 watch([frontmatter, body], () => {
-  if (command.value) scheduleSave(frontmatter.value, body.value)
+  if (command.value && isDirty.value) scheduleSave(frontmatter.value, body.value)
 }, { deep: true })
 
 function restoreDraft() {
