@@ -119,6 +119,46 @@ function getToolColor(toolName: string): string {
 // Check if this is a TodoWrite tool
 const isTodoWrite = computed(() => props.message.toolName === 'TodoWrite')
 
+// Check if this is a Skill tool
+const isSkill = computed(() => props.message.toolName === 'Skill')
+
+// Get skill name from input
+const skillName = computed(() => {
+  if (!isSkill.value || !props.message.toolInput) return null
+  return props.message.toolInput.skill || null
+})
+
+// Check if this is an Agent tool
+const isAgent = computed(() => props.message.toolName === 'Agent')
+
+// Get agent details from input
+const agentSubtype = computed(() => {
+  if (!isAgent.value || !props.message.toolInput) return null
+  return props.message.toolInput.subagent_type || null
+})
+
+const agentDescription = computed(() => {
+  if (!isAgent.value || !props.message.toolInput) return null
+  return props.message.toolInput.description || null
+})
+
+const agentPrompt = computed(() => {
+  if (!isAgent.value || !props.message.toolInput) return null
+  return props.message.toolInput.prompt || null
+})
+
+// Render agent prompt as markdown
+const renderedAgentPrompt = ref('')
+const showAgentPrompt = ref(false)
+
+watchEffect(async () => {
+  if (!agentPrompt.value) {
+    renderedAgentPrompt.value = ''
+    return
+  }
+  renderedAgentPrompt.value = await renderMarkdownWithHighlighting(agentPrompt.value)
+})
+
 // Check if this is a Bash tool
 const isBash = computed(() => props.message.toolName === 'Bash')
 
@@ -416,6 +456,76 @@ function getTodoStatusBadge(status: string): { bg: string; color: string; label:
             >
               Error
             </span>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Agent - Show subagent_type / description with expandable prompt -->
+    <template v-else-if="message.kind === 'tool_use' && isAgent">
+      <div class="flex items-start gap-2">
+        <!-- Left border indicator -->
+        <div
+          class="w-0.5 self-stretch rounded-full shrink-0"
+          style="background: #f59e0b;"
+        />
+
+        <div class="flex-1 min-w-0">
+          <!-- Header (clickable to expand/collapse prompt) -->
+          <button
+            class="inline-flex items-center gap-1.5 text-[12px] font-medium"
+            style="color: var(--text-secondary);"
+            @click="showAgentPrompt = !showAgentPrompt"
+          >
+            <UIcon
+              :name="showAgentPrompt ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
+              class="size-3"
+            />
+            <span>Agent</span>
+            <template v-if="agentSubtype">
+              <span style="color: var(--text-tertiary);">/</span>
+              <span style="color: #f59e0b;">{{ agentSubtype }}</span>
+            </template>
+            <template v-if="agentDescription">
+              <span style="color: var(--text-tertiary);">/</span>
+              <span class="break-all" style="color: var(--text-secondary);">{{ agentDescription }}</span>
+            </template>
+          </button>
+
+          <!-- Expandable prompt rendered as markdown -->
+          <div
+            v-if="showAgentPrompt && renderedAgentPrompt"
+            class="mt-2 p-3 rounded-lg text-[12px] break-words"
+            style="background: var(--surface-raised); border-left: 2px solid #f59e0b;"
+          >
+            <div
+              class="prose prose-sm max-w-none leading-relaxed"
+              style="color: var(--text-secondary);"
+              v-html="renderedAgentPrompt"
+            />
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Skill - Show skill name -->
+    <template v-else-if="message.kind === 'tool_use' && isSkill">
+      <div class="flex items-start gap-2">
+        <!-- Left border indicator -->
+        <div
+          class="w-0.5 self-stretch rounded-full shrink-0"
+          style="background: #a78bfa;"
+        />
+
+        <div class="flex-1 min-w-0">
+          <div class="text-[12px] flex items-center gap-2 flex-wrap">
+            <span style="color: var(--text-secondary);">Skill</span>
+            <template v-if="skillName">
+              <span style="color: var(--text-tertiary);">/</span>
+              <span class="font-medium break-all" style="color: #a78bfa;">
+                {{ skillName }}
+              </span>
+            </template>
           </div>
         </div>
       </div>
