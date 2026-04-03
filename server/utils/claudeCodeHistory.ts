@@ -24,6 +24,7 @@ export interface ClaudeCodeSession {
   messageCount: number
   lastActivity: string
   cwd: string
+  model?: string
   isGrouped?: boolean
   groupSize?: number
 }
@@ -402,11 +403,17 @@ async function parseJsonlSessions(filePath: string): Promise<{
                 summary: 'New Session',
                 messageCount: 0,
                 lastActivity: entry.timestamp || new Date(0).toISOString(),
-                cwd: entry.cwd || ''
+                cwd: entry.cwd || '',
+                model: (entry as any).model || undefined
               })
             }
 
             const session = sessions.get(entry.sessionId)!
+
+            // Capture model if not already set or if it appears in later entries
+            if ((entry as any).model && !session.model) {
+              session.model = (entry as any).model
+            }
 
             // Apply pending summary
             if (session.summary === 'New Session' && entry.parentUuid && pendingSummaries.has(entry.parentUuid)) {
@@ -543,6 +550,7 @@ export async function getClaudeCodeSessionMessages(
   messages: ClaudeCodeMessage[]
   total: number
   hasMore: boolean
+  model?: string
   tokenUsage?: {
     input: number
     output: number
@@ -590,30 +598,40 @@ export async function getClaudeCodeSessionMessages(
       new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime()
     )
 
-    // Extract latest token usage from assistant messages (scan from end)
+    // Extract latest token usage and model from messages (scan from end)
     let tokenUsage: any = undefined
+    let model: string | undefined = undefined
+    
     for (let i = sortedMessages.length - 1; i >= 0; i--) {
       const msg = sortedMessages[i]
+      
+      // Extract model if present anywhere in session
+      if ((msg as any).model && !model) {
+        model = (msg as any).model
+      }
+
       // Use msg.message.role or entry.role/type depending on JSONL format
       const role = msg.role || (msg.message as any)?.role || msg.type
       const usage = msg.usage || (msg.message as any)?.usage
       
-      if (role === 'assistant' && usage) {
+      if (role === 'assistant' && usage && !tokenUsage) {
         tokenUsage = {
           input: usage.input_tokens || 0,
           output: usage.output_tokens || 0,
           cacheCreation: usage.cache_creation_input_tokens || 0,
           cacheRead: usage.cache_read_input_tokens || 0
         }
-        break
       }
+      
+      // If we have both, we can stop
+      if (model && tokenUsage) break
     }
 
     const total = sortedMessages.length
 
     // If no limit, return all
     if (limit === null) {
-      return { messages: sortedMessages, total, hasMore: false, tokenUsage }
+      return { messages: sortedMessages, total, hasMore: false, tokenUsage, model }
     }
 
     // Apply pagination - get most recent messages
@@ -622,7 +640,7 @@ export async function getClaudeCodeSessionMessages(
     const paginatedMessages = sortedMessages.slice(startIndex, endIndex)
     const hasMore = startIndex > 0
 
-    return { messages: paginatedMessages, total, hasMore, tokenUsage }
+    return { messages: paginatedMessages, total, hasMore, tokenUsage, model }
   } catch (error: any) {
     console.error(`Error reading messages for session ${sessionId}:`, error)
     return { messages: [], total: 0, hasMore: false }

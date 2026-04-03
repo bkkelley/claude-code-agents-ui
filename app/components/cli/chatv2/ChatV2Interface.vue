@@ -144,16 +144,19 @@ function onContextSidebarDragEnd() {
 }
 
 // Responsive sidebar width based on window size
-const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1200)
+const windowWidth = ref(1200)
 const isSmallScreen = computed(() => windowWidth.value < 1024)
 const isMobileScreen = computed(() => false)
 const isHeaderTwoRow = computed(() => false)
 
 function updateWidth() {
-  windowWidth.value = window.innerWidth
+  if (typeof window !== 'undefined') {
+    windowWidth.value = window.innerWidth
+  }
 }
 
 onMounted(() => {
+  updateWidth()
   window.addEventListener('resize', updateWidth)
 })
 
@@ -259,6 +262,13 @@ const selectedPermissionMode = ref<PermissionMode>('default')
 
 // Model selector — options and default come from the shared model registry
 const selectedModel = ref<string>(DEFAULT_MODEL)
+
+// Sync model selection with historical session if available
+watch(() => history.selectedSession.value, (newSession) => {
+  if (newSession?.model) {
+    selectedModel.value = newSession.model
+  }
+}, { immediate: true, deep: true })
 
 // Thinking mode toggle
 const thinkingEnabled = ref(false)
@@ -375,6 +385,21 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
   isContinuingHistory.value = false  // Reset when selecting a new history session
   isInitialScroll.value = true // Set initial scroll flag
   isLoadingHistoryWithDelay.value = true // Show spinner before any awaits to avoid blank gap
+
+  // Find and set the session in shared state to sync metadata (like model)
+  const session = history.sessions.value.find(s => s.id === payload.sessionId)
+  if (session) {
+    history.selectedSession.value = session
+  } else {
+    // Fallback: create a skeleton session if not in the current list
+    history.selectedSession.value = {
+      id: payload.sessionId,
+      summary: payload.sessionSummary,
+      lastActivity: new Date().toISOString(),
+      messageCount: 0,
+      cwd: '',
+    }
+  }
 
   // Update URL only if not already there (avoids redundant navigation when triggered by route watcher)
   const targetPath = `/cli/project/${encodeURIComponent(payload.projectName)}/session/${encodeURIComponent(payload.sessionId)}`
@@ -857,6 +882,7 @@ function handleOpenFile(filePath: string) {
     <div class="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
       <!-- Header - Fixed height for consistent alignment -->
       <div
+        :key="urlSessionId || 'live'"
         class="shrink-0 border-b relative z-20"
         style="border-color: var(--border-subtle); background: var(--surface-base);"
       >
@@ -867,15 +893,17 @@ function handleOpenFile(filePath: string) {
             <div class="grid min-w-0 py-0.5 flex-1">
               <!-- Session Name -->
               <div class="text-[13px] font-medium leading-tight text-ellipsis overflow-hidden whitespace-nowrap" style="color: var(--text-primary);">
-                {{ currentSessionSummary || 'Session' }}
+                <span v-if="isLoadingHistoryWithDelay && !isLoadingMore" class="animate-pulse opacity-50">Loading session...</span>
+                <span v-else>{{ currentSessionSummary || 'Session' }}</span>
               </div>
               <!-- Folder Name -->
               <div
-                v-if="currentProjectDisplayName"
+                v-if="currentProjectDisplayName || (isLoadingHistoryWithDelay && !isLoadingMore)"
                 class="text-[9px] md:text-[10px] font-mono leading-tight mt-0.5 text-ellipsis overflow-hidden whitespace-nowrap"
                 style="color: var(--text-tertiary);"
               >
-                {{ currentProjectDisplayName }}
+                <span v-if="isLoadingHistoryWithDelay && !isLoadingMore" class="animate-pulse opacity-50">Loading project...</span>
+                <span v-else>{{ currentProjectDisplayName }}</span>
               </div>
             </div>
           </template>

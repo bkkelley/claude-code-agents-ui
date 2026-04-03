@@ -16,6 +16,7 @@ interface ClaudeCodeSession {
   messageCount: number
   lastActivity: string
   cwd: string
+  model?: string
   isGrouped?: boolean
   groupSize?: number
 }
@@ -237,6 +238,7 @@ export function useClaudeCodeHistory() {
         hasMore: boolean
         projectName: string
         sessionId: string
+        model?: string
         tokenUsage?: {
           input: number
           output: number
@@ -249,7 +251,13 @@ export function useClaudeCodeHistory() {
 
       if (offset === 0) {
         messages.value = response.messages
-      } else {
+        // Sync model to selected session if we found one
+        if (response.model && selectedSession.value && selectedSession.value.id === sessionId) {
+          // Use direct assignment to ensure it's reactive within the object
+          selectedSession.value.model = response.model
+        }
+      }
+ else {
         // Prepend older messages
         messages.value = [...response.messages, ...messages.value]
       }
@@ -258,7 +266,8 @@ export function useClaudeCodeHistory() {
       messagesTotal.value = response.total
       return {
         messages: response.messages,
-        tokenUsage: response.tokenUsage
+        tokenUsage: response.tokenUsage,
+        model: response.model
       }
     } catch (error) {
       console.error('Failed to fetch messages:', error)

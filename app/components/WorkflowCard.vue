@@ -53,7 +53,9 @@ function timeAgo(iso: string): string {
         </div>
       </div>
       <span class="text-[10px]" style="color: var(--text-disabled);">{{ workflow.steps.length }} step{{ workflow.steps.length === 1 ? '' : 's' }}</span>
-      <span v-if="workflow.lastRunAt" class="text-[10px] ml-auto" style="color: var(--text-disabled);">{{ timeAgo(workflow.lastRunAt) }}</span>
+      <ClientOnly>
+        <span v-if="workflow.lastRunAt" class="text-[10px] ml-auto" style="color: var(--text-disabled);">{{ timeAgo(workflow.lastRunAt) }}</span>
+      </ClientOnly>
     </div>
   </NuxtLink>
 </template>
