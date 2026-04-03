@@ -628,13 +628,15 @@ function getTodoStatusBadge(status: string): { bg: string; color: string; label:
     </template>
 
     <!-- Timestamp (if shown) -->
-    <div
-      v-if="showTimestamp"
-      class="text-[10px] mt-1.5"
-      style="color: var(--text-tertiary);"
-    >
-      {{ new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
-    </div>
+    <ClientOnly>
+      <div
+        v-if="showTimestamp"
+        class="text-[10px] mt-1.5"
+        style="color: var(--text-tertiary);"
+      >
+        {{ new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+      </div>
+    </ClientOnly>
   </div>
 </template>
 

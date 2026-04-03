@@ -67,10 +67,16 @@ watch(content, updateHighlighting, { immediate: true })
 const isExpanded = ref(false)
 
 // Drag-to-resize
-const sidebarWidth = ref(Math.max(window?.innerWidth ? window.innerWidth * 0.5 : 600, 400))
+const sidebarWidth = ref(600)
 const isDragging = ref(false)
 const dragStartX = ref(0)
 const dragStartWidth = ref(0)
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    sidebarWidth.value = Math.max(window.innerWidth * 0.5, 400)
+  }
+})
 
 function onDragStart(e: MouseEvent) {
   if (isExpanded.value) return

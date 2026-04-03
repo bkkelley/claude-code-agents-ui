@@ -10,7 +10,7 @@ const { fetchServers, servers: mcpServers } = useMCP()
 
 const initialized = ref(false)
 const showSearch = ref(false)
-const sidebarCollapsed = ref(false)
+const sidebarCollapsed = useState('sidebar-collapsed', () => false)
 const { isPanelOpen: chatOpen } = useChat()
 const { workingDir, displayPath, setWorkingDir, clearWorkingDir } = useWorkingDir()
 const colorMode = useColorMode()
@@ -300,18 +300,20 @@ function badgeFor(to: string) {
 
         <!-- Theme toggle -->
         <div :class="sidebarCollapsed ? 'px-1.5 pb-1' : 'px-2.5 pb-1'">
-          <button
-            class="w-full flex items-center rounded-lg transition-all duration-150 focus-ring press-scale"
-            :class="sidebarCollapsed ? 'justify-center px-0 py-2' : 'gap-2 px-3 py-2'"
-            style="color: var(--text-tertiary);"
-            :title="sidebarCollapsed ? (colorMode.value === 'dark' ? 'Light mode' : 'Dark mode') : undefined"
-            @click="toggleTheme"
-          >
-            <UIcon :name="colorMode.value === 'dark' ? 'i-lucide-sun' : 'i-lucide-moon'" class="size-4" />
-            <span v-if="!sidebarCollapsed" class="text-[12px]" style="font-family: var(--font-sans);">
-              {{ colorMode.value === 'dark' ? 'Light mode' : 'Dark mode' }}
-            </span>
-          </button>
+          <ClientOnly>
+            <button
+              class="w-full flex items-center rounded-lg transition-all duration-150 focus-ring press-scale"
+              :class="sidebarCollapsed ? 'justify-center px-0 py-2' : 'gap-2 px-3 py-2'"
+              style="color: var(--text-tertiary);"
+              :title="sidebarCollapsed ? (colorMode.value === 'dark' ? 'Light mode' : 'Dark mode') : undefined"
+              @click="toggleTheme"
+            >
+              <UIcon :name="colorMode.value === 'dark' ? 'i-lucide-sun' : 'i-lucide-moon'" class="size-4" />
+              <span v-if="!sidebarCollapsed" class="text-[12px]" style="font-family: var(--font-sans);">
+                {{ colorMode.value === 'dark' ? 'Light mode' : 'Dark mode' }}
+              </span>
+            </button>
+          </ClientOnly>
         </div>
 
         <!-- Footer: working directory -->

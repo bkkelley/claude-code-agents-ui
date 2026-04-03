@@ -86,9 +86,11 @@ function handleOpenFile(filePath: string) {
               <div v-if="msg.content" class="text-[12px] md:text-[13px] whitespace-pre-wrap break-words overflow-wrap-anywhere max-w-full">{{ msg.content }}</div>
             </div>
             <!-- Single timestamp for the group -->
-            <div class="text-[9px] md:text-[10px] px-1" style="color: var(--text-tertiary);">
-              {{ new Date(group.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
-            </div>
+            <ClientOnly>
+              <div class="text-[9px] md:text-[10px] px-1" style="color: var(--text-tertiary);">
+                {{ new Date(group.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+              </div>
+            </ClientOnly>
           </div>
           <!-- User Avatar -->
           <div
@@ -116,9 +118,11 @@ function handleOpenFile(filePath: string) {
           <!-- Claude Header -->
           <div class="flex items-center gap-2 mb-1.5 md:mb-2">
             <span class="text-[12px] md:text-[13px] font-semibold" style="color: var(--text-primary);">Claude</span>
-            <span class="text-[9px] md:text-[10px]" style="color: var(--text-tertiary);">
-              {{ new Date(group.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
-            </span>
+            <ClientOnly>
+              <span class="text-[9px] md:text-[10px]" style="color: var(--text-tertiary);">
+                {{ new Date(group.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+              </span>
+            </ClientOnly>
           </div>
 
           <!-- Messages in this group -->

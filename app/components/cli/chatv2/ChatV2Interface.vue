@@ -144,17 +144,21 @@ function onContextSidebarDragEnd() {
 }
 
 // Responsive sidebar width based on window size
-const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1200)
+const windowWidth = ref(1200)
 const isSmallScreen = computed(() => windowWidth.value < 1024)
 const isMobileScreen = computed(() => false)
 const isHeaderTwoRow = computed(() => false)
 
 function updateWidth() {
-  windowWidth.value = window.innerWidth
+  if (typeof window !== 'undefined') {
+    windowWidth.value = window.innerWidth
+  }
 }
 
 onMounted(() => {
+  updateWidth()
   window.addEventListener('resize', updateWidth)
+  document.addEventListener('click', handleEffortClickOutside)
 })
 
 onUnmounted(() => {
@@ -163,6 +167,7 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', onContextSidebarDragEnd)
   document.removeEventListener('mousemove', onLeftSidebarDragMove)
   document.removeEventListener('mouseup', onLeftSidebarDragEnd)
+  document.removeEventListener('click', handleEffortClickOutside)
 })
 
 watch(isMobileScreen, (isMobile) => {
@@ -260,8 +265,33 @@ const selectedPermissionMode = ref<PermissionMode>('default')
 // Model selector — options and default come from the shared model registry
 const selectedModel = ref<string>(DEFAULT_MODEL)
 
-// Thinking mode toggle
-const thinkingEnabled = ref(false)
+// Sync model selection with historical session if available
+watch(() => history.selectedSession.value, (newSession) => {
+  if (newSession?.model) {
+    selectedModel.value = newSession.model
+  }
+}, { immediate: true, deep: true })
+
+// Effort level selector
+type EffortLevel = 'low' | 'medium' | 'high' | 'max'
+const effortLevel = ref<EffortLevel>('medium')
+const showEffortMenu = ref(false)
+
+const effortOptions: { value: EffortLevel; label: string; icon: string; description: string; color: string }[] = [
+  { value: 'max', label: 'Max', icon: 'i-lucide-flame', description: 'Deepest reasoning, no constraints', color: '#ef4444' },
+  { value: 'high', label: 'High', icon: 'i-lucide-brain', description: 'Complex reasoning (default)', color: '#8b5cf6' },
+  { value: 'medium', label: 'Medium', icon: 'i-lucide-gauge', description: 'Balanced speed & quality', color: '#f59e0b' },
+  { value: 'low', label: 'Low', icon: 'i-lucide-zap', description: 'Fastest, most efficient', color: '#22c55e' },
+]
+
+const currentEffort = computed(() => effortOptions.find(o => o.value === effortLevel.value)!)
+const effortMenuRef = ref<HTMLElement | null>(null)
+
+function handleEffortClickOutside(e: MouseEvent) {
+  if (effortMenuRef.value && !effortMenuRef.value.contains(e.target as Node)) {
+    showEffortMenu.value = false
+  }
+}
 
 // Get display messages - either from live session or Claude Code history
 const displayMessages = computed<DisplayChatMessage[]>(() => {
@@ -375,6 +405,21 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
   isContinuingHistory.value = false  // Reset when selecting a new history session
   isInitialScroll.value = true // Set initial scroll flag
   isLoadingHistoryWithDelay.value = true // Show spinner before any awaits to avoid blank gap
+
+  // Find and set the session in shared state to sync metadata (like model)
+  const session = history.sessions.value.find(s => s.id === payload.sessionId)
+  if (session) {
+    history.selectedSession.value = session
+  } else {
+    // Fallback: create a skeleton session if not in the current list
+    history.selectedSession.value = {
+      id: payload.sessionId,
+      summary: payload.sessionSummary,
+      lastActivity: new Date().toISOString(),
+      messageCount: 0,
+      cwd: '',
+    }
+  }
 
   // Update URL only if not already there (avoids redundant navigation when triggered by route watcher)
   const targetPath = `/cli/project/${encodeURIComponent(payload.projectName)}/session/${encodeURIComponent(payload.sessionId)}`
@@ -719,7 +764,7 @@ async function handleSendMessage(images: string[] = []) {
       workingDir: localWorkingDir.value || undefined,
       permissionMode: selectedPermissionMode.value,
       model: selectedModel.value,
-      thinkingEnabled: thinkingEnabled.value,
+      effort: effortLevel.value,
       images,
     })
 
@@ -737,7 +782,7 @@ async function handleSendMessage(images: string[] = []) {
     workingDir: localWorkingDir.value || undefined,
     permissionMode: selectedPermissionMode.value,
     model: selectedModel.value,
-    thinkingEnabled: thinkingEnabled.value,
+    effort: effortLevel.value,
     images,
   })
 
@@ -857,6 +902,7 @@ function handleOpenFile(filePath: string) {
     <div class="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
       <!-- Header - Fixed height for consistent alignment -->
       <div
+        :key="urlSessionId || 'live'"
         class="shrink-0 border-b relative z-20"
         style="border-color: var(--border-subtle); background: var(--surface-base);"
       >
@@ -867,15 +913,17 @@ function handleOpenFile(filePath: string) {
             <div class="grid min-w-0 py-0.5 flex-1">
               <!-- Session Name -->
               <div class="text-[13px] font-medium leading-tight text-ellipsis overflow-hidden whitespace-nowrap" style="color: var(--text-primary);">
-                {{ currentSessionSummary || 'Session' }}
+                <span v-if="isLoadingHistoryWithDelay && !isLoadingMore" class="animate-pulse opacity-50">Loading session...</span>
+                <span v-else>{{ currentSessionSummary || 'Session' }}</span>
               </div>
               <!-- Folder Name -->
               <div
-                v-if="currentProjectDisplayName"
+                v-if="currentProjectDisplayName || (isLoadingHistoryWithDelay && !isLoadingMore)"
                 class="text-[9px] md:text-[10px] font-mono leading-tight mt-0.5 text-ellipsis overflow-hidden whitespace-nowrap"
                 style="color: var(--text-tertiary);"
               >
-                {{ currentProjectDisplayName }}
+                <span v-if="isLoadingHistoryWithDelay && !isLoadingMore" class="animate-pulse opacity-50">Loading project...</span>
+                <span v-else>{{ currentProjectDisplayName }}</span>
               </div>
             </div>
           </template>
@@ -1065,24 +1113,63 @@ function handleOpenFile(filePath: string) {
           class="absolute bottom-0 left-0 right-0 flex justify-center items-center gap-4 py-4 z-10"
           style="background: linear-gradient(to top, var(--surface-base) 20%, transparent 100%); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);"
         >
-          <!-- Thinking Toggle -->
-          <button
-            class="flex items-center justify-center p-2 rounded-full transition-all shadow-lg border backdrop-blur-md"
-            :style="{
-              background: thinkingEnabled ? 'color-mix(in srgb, #8b5cf6 15%, var(--surface-overlay))' : 'var(--surface-overlay)',
-              color: thinkingEnabled ? '#8b5cf6' : 'var(--text-tertiary)',
-              borderColor: thinkingEnabled ? 'rgba(139, 92, 246, 0.4)' : 'var(--border-subtle)',
-              boxShadow: thinkingEnabled ? '0 4px 12px rgba(139, 92, 246, 0.2)' : '0 4px 12px rgba(0, 0, 0, 0.1)',
-            }"
-            @click="thinkingEnabled = !thinkingEnabled"
-            :title="thinkingEnabled ? 'Thinking Enabled' : 'Thinking Disabled'"
-          >
-            <UIcon 
-              name="i-lucide-brain" 
-              class="size-4" 
-              :class="{ 'animate-pulse': thinkingEnabled }"
-            />
-          </button>
+          <!-- Effort Level Selector -->
+          <div ref="effortMenuRef" class="relative">
+            <button
+              class="flex items-center justify-center p-2 rounded-full transition-all shadow-lg border backdrop-blur-md"
+              :style="{
+                background: `color-mix(in srgb, ${currentEffort.color} 15%, var(--surface-overlay))`,
+                color: currentEffort.color,
+                borderColor: `color-mix(in srgb, ${currentEffort.color} 40%, transparent)`,
+                boxShadow: `0 4px 12px color-mix(in srgb, ${currentEffort.color} 20%, transparent)`,
+              }"
+              :title="`Effort: ${currentEffort.label}`"
+              @click="showEffortMenu = !showEffortMenu"
+            >
+              <UIcon
+                :name="currentEffort.icon"
+                class="size-4"
+              />
+            </button>
+
+            <!-- Effort Menu Popover -->
+            <Transition
+              enter-active-class="transition duration-150 ease-out"
+              enter-from-class="opacity-0 translate-y-2 scale-95"
+              enter-to-class="opacity-100 translate-y-0 scale-100"
+              leave-active-class="transition duration-100 ease-in"
+              leave-from-class="opacity-100 translate-y-0 scale-100"
+              leave-to-class="opacity-0 translate-y-2 scale-95"
+            >
+              <div
+                v-if="showEffortMenu"
+                class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 rounded-xl border shadow-xl backdrop-blur-md overflow-hidden"
+                style="background: var(--surface-overlay); border-color: var(--border-subtle);"
+              >
+                <div class="p-1.5">
+                  <button
+                    v-for="option in effortOptions"
+                    :key="option.value"
+                    class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-left"
+                    :style="{
+                      background: effortLevel === option.value ? `color-mix(in srgb, ${option.color} 12%, transparent)` : 'transparent',
+                      color: effortLevel === option.value ? option.color : 'var(--text-primary)',
+                    }"
+                    @mouseenter="($event.currentTarget as HTMLElement).style.background = effortLevel === option.value ? `color-mix(in srgb, ${option.color} 12%, transparent)` : 'color-mix(in srgb, var(--text-primary) 5%, transparent)'"
+                    @mouseleave="($event.currentTarget as HTMLElement).style.background = effortLevel === option.value ? `color-mix(in srgb, ${option.color} 12%, transparent)` : 'transparent'"
+                    @click="effortLevel = option.value; showEffortMenu = false"
+                  >
+                    <UIcon :name="option.icon" class="size-4 shrink-0" :style="{ color: option.color }" />
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium">{{ option.label }}</div>
+                      <div class="text-xs truncate" style="color: var(--text-tertiary);">{{ option.description }}</div>
+                    </div>
+                    <UIcon v-if="effortLevel === option.value" name="i-lucide-check" class="size-3.5 ml-auto shrink-0" :style="{ color: option.color }" />
+                  </button>
+                </div>
+              </div>
+            </Transition>
+          </div>
 
           <!-- Context Usage Circle -->
           <UTooltip :text="`Context: ${contextMonitor.contextUsageText.value} - Click for details`" :popper="{ placement: 'top' }">
