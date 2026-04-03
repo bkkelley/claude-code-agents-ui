@@ -259,16 +259,29 @@ export function useChatV2Handler() {
           sessionStore.setStatus(completeSessionId, 'idle')
           sessionStore.appendRealtime(completeSessionId, message)
 
-          // Update context monitor if usage info is available
-          if (message.metadata?.modelUsage) {
-            contextMonitor.handleWebSocketEvent({
-              type: 'token_update',
-              tokens: {
-                input: message.metadata.modelUsage.input_tokens || 0,
-                output: message.metadata.modelUsage.output_tokens || 0,
-                cached: message.metadata.modelUsage.cache_read_input_tokens || 0,
-              }
-            } as any)
+          // Update context monitor with aggregated usage from result
+          if (message.metadata?.aggregatedUsage) {
+            const usage = message.metadata.aggregatedUsage
+            contextMonitor.updateTokenUsage({
+              input: usage.input || 0,
+              output: usage.output || 0,
+              cacheRead: usage.cacheRead || 0,
+              cacheCreation: usage.cacheCreation || 0,
+            })
+
+            // Update context window total if provided
+            if (usage.contextWindow) {
+              contextMonitor.metrics.value.contextWindow.total = usage.contextWindow
+              // Recalculate percentage
+              const used = contextMonitor.metrics.value.contextWindow.used
+              contextMonitor.metrics.value.contextWindow.percentage =
+                Math.round((used / usage.contextWindow) * 10000) / 100
+            }
+
+            // Update cost if provided
+            if (usage.totalCost !== undefined) {
+              contextMonitor.metrics.value.cost.total = usage.totalCost
+            }
           }
         }
         break

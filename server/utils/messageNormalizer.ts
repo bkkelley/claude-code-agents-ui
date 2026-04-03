@@ -141,8 +141,36 @@ export function normalizeSDKMessage(
       // The accumulated stream_delta content will be finalized to text by the frontend
     }
 
-    // Add stop reason as complete message
-    if (sdkMessage.stop_reason) {
+    // Add complete message with full usage data
+    {
+      // Aggregate modelUsage across all models (Record<string, ModelUsage>)
+      let totalInput = 0
+      let totalOutput = 0
+      let totalCacheRead = 0
+      let totalCacheCreation = 0
+      let totalCost = sdkMessage.total_cost_usd || 0
+      let contextWindow = 200_000
+
+      if (sdkMessage.modelUsage && typeof sdkMessage.modelUsage === 'object') {
+        for (const modelUsage of Object.values(sdkMessage.modelUsage) as any[]) {
+          totalInput += modelUsage.inputTokens || 0
+          totalOutput += modelUsage.outputTokens || 0
+          totalCacheRead += modelUsage.cacheReadInputTokens || 0
+          totalCacheCreation += modelUsage.cacheCreationInputTokens || 0
+          if (modelUsage.contextWindow) {
+            contextWindow = modelUsage.contextWindow
+          }
+        }
+      }
+
+      // Also check top-level usage as fallback
+      if (totalInput === 0 && sdkMessage.usage) {
+        totalInput = sdkMessage.usage.input_tokens || 0
+        totalOutput = sdkMessage.usage.output_tokens || 0
+        totalCacheRead = sdkMessage.usage.cache_read_input_tokens || 0
+        totalCacheCreation = sdkMessage.usage.cache_creation_input_tokens || 0
+      }
+
       messages.push({
         kind: 'complete',
         id: randomUUID(),
@@ -152,6 +180,14 @@ export function normalizeSDKMessage(
         metadata: {
           stopReason: sdkMessage.stop_reason,
           modelUsage: sdkMessage.modelUsage,
+          aggregatedUsage: {
+            input: totalInput,
+            output: totalOutput,
+            cacheRead: totalCacheRead,
+            cacheCreation: totalCacheCreation,
+            contextWindow,
+            totalCost,
+          },
         },
       })
     }
