@@ -49,6 +49,22 @@ const selectedOutputStyleName = computed(() => {
 const viewMode = ref<'projects' | 'sessions'>('projects')
 const sessionsSubView = ref<'sessions' | 'config'>('sessions')
 
+const route = useRoute()
+
+// Sync viewMode and sessionsSubView with route (important for page refresh)
+watch(() => ({
+  project: selectedProject.value,
+  isSettings: route.path.endsWith('/settings')
+}), ({ project, isSettings }) => {
+  if (project) {
+    viewMode.value = 'sessions'
+    sessionsSubView.value = isSettings ? 'config' : 'sessions'
+  } else {
+    viewMode.value = 'projects'
+    sessionsSubView.value = 'sessions'
+  }
+}, { immediate: true })
+
 // Refresh state
 const isRefreshing = ref(false)
 

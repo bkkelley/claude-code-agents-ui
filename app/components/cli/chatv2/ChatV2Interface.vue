@@ -750,47 +750,49 @@ watch(
     const resolvedProjectName = project?.name || projectName
     const projectDisplayName = project?.displayName || resolvedProjectName
 
+    // Sync sidebar state
+    if (project && history.selectedProject.value?.name !== resolvedProjectName) {
+      history.selectedProject.value = project
+      // Load sessions for this project immediately
+      await history.fetchSessions(resolvedProjectName)
+    }
+
     if (isSettings) {
       // Settings URL: /cli/project/:projectName/settings
       urlProjectName.value = resolvedProjectName
       urlSessionId.value = null
       currentProjectDisplayName.value = projectDisplayName
       isOnSettingsRoute.value = true
-
-      // Ensure project is selected in sidebar
-      if (history.selectedProject.value?.name !== resolvedProjectName) {
-        history.selectedProject.value = project || null
-        await history.fetchSessions(resolvedProjectName)
-      }
-    } else if (sessionId) {
-      // Full session URL: /cli/project/:projectName/session/:sessionId
-      // Guard: already showing this session
-      if (urlProjectName.value === resolvedProjectName && urlSessionId.value === sessionId) return
-
-      // Fetch sessions for this project if not already loaded
-      if (history.selectedProject.value?.name !== resolvedProjectName) {
-        history.selectedProject.value = project || null
-        await history.fetchSessions(resolvedProjectName)
-      }
-
-      const session = history.sessions.value.find(s => s.id === sessionId)
-      const sessionSummary = session?.summary || ''
-
-      await handleClaudeCodeSessionSelected({
-        projectName: resolvedProjectName,
-        sessionId,
-        sessionSummary,
-        projectDisplayName,
-      })
+      activeConfigPanel.value = activeConfigPanel.value || null
     } else {
-      // Project-only URL: /cli/project/:projectName
-      // Guard: already showing this project with no session
-      if (urlProjectName.value === resolvedProjectName && !urlSessionId.value) return
+      // Not on settings route
+      isOnSettingsRoute.value = false
+      activeConfigPanel.value = null
 
-      handleClaudeCodeProjectSelected({ projectName: resolvedProjectName, projectDisplayName })
+      if (sessionId) {
+        // Full session URL: /cli/project/:projectName/session/:sessionId
+        // Guard: already showing this session
+        if (urlProjectName.value === resolvedProjectName && urlSessionId.value === sessionId && viewMode.value === 'history') return
+
+        const session = history.sessions.value.find(s => s.id === sessionId)
+        const sessionSummary = session?.summary || ''
+
+        await handleClaudeCodeSessionSelected({
+          projectName: resolvedProjectName,
+          sessionId,
+          sessionSummary,
+          projectDisplayName,
+        })
+      } else {
+        // Project-only URL: /cli/project/:projectName
+        // Guard: already showing this project with no session
+        if (urlProjectName.value === resolvedProjectName && !urlSessionId.value && viewMode.value === 'live') return
+
+        handleClaudeCodeProjectSelected({ projectName: resolvedProjectName, projectDisplayName })
+      }
     }
   },
-  { immediate: true }
+  { immediate: true, flush: 'post' }
 )
 
 // Debounce timer for history refreshes during live chat
