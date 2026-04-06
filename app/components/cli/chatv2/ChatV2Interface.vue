@@ -155,10 +155,15 @@ function updateWidth() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Set the correct width only after mounting on the client to avoid hydration mismatch
+  leftSidebarWidth.value = getDefaultSidebarWidth()
   updateWidth()
   window.addEventListener('resize', updateWidth)
   document.addEventListener('click', handleEffortClickOutside)
+  
+  // Fetch sessions on mount
+  await fetchSessions()
 })
 
 onUnmounted(() => {
@@ -183,7 +188,8 @@ function getDefaultSidebarWidth() {
   if (window.innerWidth < 1280) return 260
   return 320
 }
-const leftSidebarWidth = ref(getDefaultSidebarWidth())
+// Initialize with a stable value to avoid hydration mismatch
+const leftSidebarWidth = ref(320)
 
 const sidebarWidth = computed(() =>
   sidebarCollapsed.value ? '56px' : `${leftSidebarWidth.value}px`
@@ -463,11 +469,6 @@ const displayMessages = computed<DisplayChatMessage[]>(() => {
 
   const messages = sessionStore.getMessages(liveSessionId)
   return convertToDisplayMessages(messages, streamingText.value)
-})
-
-// Fetch sessions on mount (no automatic WebSocket connection - connect lazily when sending)
-onMounted(async () => {
-  await fetchSessions()
 })
 
 // Watch for errors and show toast
