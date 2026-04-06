@@ -294,6 +294,146 @@ function handleEffortClickOutside(e: MouseEvent) {
   }
 }
 
+// Selected project path (from history selection or working dir)
+const selectedProjectPath = computed(() => {
+  return history.selectedProject.value?.path || localWorkingDir.value || null
+})
+
+// ── Config Panel (rendered in main content area) ──
+const activeConfigPanel = ref<string | null>(null)
+
+// Whether we're on the settings route (controls main panel view)
+const isOnSettingsRoute = ref(false)
+
+function handleSettingsToggled(open: boolean) {
+  if (open) {
+    isOnSettingsRoute.value = true
+    activeConfigPanel.value = null // Start on landing page
+    if (urlProjectName.value) {
+      const targetPath = `/cli/project/${encodeURIComponent(urlProjectName.value)}/settings`
+      if (route.path !== targetPath) {
+        navigateTo(targetPath, { replace: false })
+      }
+    }
+  } else {
+    isOnSettingsRoute.value = false
+    activeConfigPanel.value = null
+    if (urlProjectName.value) {
+      const targetPath = `/cli/project/${encodeURIComponent(urlProjectName.value)}`
+      if (route.path !== targetPath) {
+        navigateTo(targetPath, { replace: false })
+      }
+    }
+  }
+}
+
+function handleConfigPanelSelected(panel: string) {
+  activeConfigPanel.value = panel
+  if (panel === 'claude-md') {
+    fetchClaudeMd()
+  } else if (panel === 'output-style') {
+    fetchOutputStyles()
+    fetchConfigDirSettings()
+  }
+}
+
+function closeConfigPanel() {
+  activeConfigPanel.value = null
+}
+
+// Output styles for config panel
+const { styles: configOutputStyles, fetchStyles: fetchOutputStyles } = useOutputStyles()
+const selectedOutputStyleId2 = useState('chat-active-output-style-id', () => 'default')
+const selectedOutputStyleName = computed(() => {
+  const style = configOutputStyles.value.find(s => s.id === selectedOutputStyleId2.value)
+  return style ? style.name : 'Default'
+})
+
+// CLAUDE.md state
+const claudeMdExists = ref(false)
+const claudeMdContent = ref('')
+const claudeMdDraft = ref('')
+const isLoadingClaudeMd = ref(false)
+const isSavingClaudeMd = ref(false)
+
+// Project settings for output style
+const configDirSettings = ref<any>({})
+const isSavingConfigSettings = ref(false)
+
+async function fetchClaudeMd() {
+  const projectPath = selectedProjectPath.value
+  if (!projectPath) return
+  isLoadingClaudeMd.value = true
+  try {
+    const res = await $fetch<{ exists: boolean; content: string }>('/api/projects/claude-md', {
+      query: { path: projectPath }
+    })
+    claudeMdExists.value = res.exists
+    claudeMdContent.value = res.content
+    claudeMdDraft.value = res.exists ? res.content : `# CLAUDE.md\n\nProject instructions for Claude Code.\n`
+  } catch (e) {
+    console.error('Failed to fetch CLAUDE.md:', e)
+  } finally {
+    isLoadingClaudeMd.value = false
+  }
+}
+
+async function saveClaudeMd() {
+  const projectPath = selectedProjectPath.value
+  if (!projectPath) return
+  isSavingClaudeMd.value = true
+  try {
+    await $fetch('/api/projects/claude-md', {
+      method: 'PUT',
+      body: { path: projectPath, content: claudeMdDraft.value }
+    })
+    claudeMdContent.value = claudeMdDraft.value
+    claudeMdExists.value = true
+    toast.add({ title: 'CLAUDE.md saved', color: 'success', duration: 2000 })
+  } catch (e: any) {
+    toast.add({ title: 'Failed to save CLAUDE.md', description: e.message, color: 'error' })
+  } finally {
+    isSavingClaudeMd.value = false
+  }
+}
+
+async function fetchConfigDirSettings() {
+  const projectPath = selectedProjectPath.value
+  if (!projectPath) return
+  try {
+    configDirSettings.value = await $fetch('/api/projects/settings', {
+      query: { path: projectPath }
+    })
+    if (configDirSettings.value.outputStyle) {
+      const style = configOutputStyles.value.find(
+        s => s.name.toLowerCase() === configDirSettings.value.outputStyle.toLowerCase() || s.id === configDirSettings.value.outputStyle.toLowerCase()
+      )
+      if (style) selectedOutputStyleId2.value = style.id
+    }
+  } catch (e) {
+    console.error('Failed to fetch directory settings:', e)
+  }
+}
+
+async function saveOutputStyleSetting() {
+  const projectPath = selectedProjectPath.value
+  if (!projectPath) return
+  isSavingConfigSettings.value = true
+  try {
+    const style = configOutputStyles.value.find(s => s.id === selectedOutputStyleId2.value)
+    if (style) configDirSettings.value.outputStyle = style.name
+    await $fetch('/api/projects/settings', {
+      method: 'PUT',
+      body: { path: projectPath, settings: configDirSettings.value }
+    })
+    toast.add({ title: 'Output style saved', color: 'success', duration: 2000 })
+  } catch (e: any) {
+    toast.add({ title: 'Failed to save settings', description: e.message, color: 'error' })
+  } finally {
+    isSavingConfigSettings.value = false
+  }
+}
+
 // Get display messages - either from live session or Claude Code history
 const displayMessages = computed<DisplayChatMessage[]>(() => {
   // Determine which session ID to use for live messages
@@ -343,6 +483,8 @@ watch(error, (newError) => {
 
 // Handle Claude Code project selection
 function handleClaudeCodeProjectSelected(payload: { projectName: string; projectDisplayName: string }) {
+  activeConfigPanel.value = null
+  isOnSettingsRoute.value = false
   urlProjectName.value = payload.projectName
   urlSessionId.value = null
   setCurrentSessionId(null) // Clear active session
@@ -396,6 +538,8 @@ function scrollToBottom(behavior: ScrollBehavior = 'auto'): Promise<void> {
 
 // Handle Claude Code history session selection
 async function handleClaudeCodeSessionSelected(payload: { projectName: string; sessionId: string; sessionSummary: string; projectDisplayName: string }) {
+  activeConfigPanel.value = null
+  isOnSettingsRoute.value = false
   viewMode.value = 'history'
   isLiveChat.value = false
   urlProjectName.value = payload.projectName
@@ -448,6 +592,8 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
 
 // Handle selection cleared (back to projects list)
 function handleSelectionCleared() {
+  activeConfigPanel.value = null
+  isOnSettingsRoute.value = false
   viewMode.value = 'live'
   isLiveChat.value = false
   urlProjectName.value = null
@@ -556,34 +702,82 @@ watch(
   () => ({
     projectName: route.params.projectName as string | undefined,
     sessionId: route.params.sessionId as string | undefined,
+    isSettings: route.path.endsWith('/settings'),
     projectsLoaded: history.projects.value.length > 0,
   }),
-  async ({ projectName, sessionId, projectsLoaded }) => {
+  async ({ projectName, sessionId, isSettings, projectsLoaded }) => {
     // No params — nothing to restore
     if (!projectName) return
 
     // Wait for projects to be loaded before resolving metadata
-    if (!projectsLoaded) return
+    if (!projectsLoaded) {
+      await history.fetchProjects()
+    }
 
-    const project = history.projects.value.find(p => p.name === projectName)
-    const projectDisplayName = project?.displayName || projectName
+    // 1. Resolve project - some URLs might use dash-encoded paths
+    let project = history.projects.value.find(p => p.name === projectName)
+    
+    // If project not found by name, try to resolve via API (fuzzy/path match)
+    if (!project) {
+      try {
+        const res = await $fetch<{ projectName: string | null }>('/api/projects/resolve', {
+          query: { name: projectName }
+        })
+        if (res.projectName && res.projectName !== projectName) {
+          // Redirect to the correct canonical URL - replacing only the project part of the path
+          const currentPath = route.path
+          const oldSegment = encodeURIComponent(projectName)
+          const newSegment = encodeURIComponent(res.projectName)
+          
+          if (currentPath.includes(oldSegment)) {
+            const newPath = currentPath.replace(oldSegment, newSegment)
+            return navigateTo(newPath, { replace: true })
+          } else if (currentPath.includes(projectName)) {
+             // Try unencoded version if encoded wasn't in path
+             const newPath = currentPath.replace(projectName, res.projectName)
+             return navigateTo(newPath, { replace: true })
+          }
+        }
+        // If it resolved to a known name, get the project object
+        if (res.projectName) {
+          project = history.projects.value.find(p => p.name === res.projectName)
+        }
+      } catch (e) {
+        console.error('[ChatV2] Failed to resolve project:', e)
+      }
+    }
 
-    if (sessionId) {
+    const resolvedProjectName = project?.name || projectName
+    const projectDisplayName = project?.displayName || resolvedProjectName
+
+    if (isSettings) {
+      // Settings URL: /cli/project/:projectName/settings
+      urlProjectName.value = resolvedProjectName
+      urlSessionId.value = null
+      currentProjectDisplayName.value = projectDisplayName
+      isOnSettingsRoute.value = true
+
+      // Ensure project is selected in sidebar
+      if (history.selectedProject.value?.name !== resolvedProjectName) {
+        history.selectedProject.value = project || null
+        await history.fetchSessions(resolvedProjectName)
+      }
+    } else if (sessionId) {
       // Full session URL: /cli/project/:projectName/session/:sessionId
       // Guard: already showing this session
-      if (urlProjectName.value === projectName && urlSessionId.value === sessionId) return
+      if (urlProjectName.value === resolvedProjectName && urlSessionId.value === sessionId) return
 
       // Fetch sessions for this project if not already loaded
-      if (history.selectedProject.value?.name !== projectName) {
+      if (history.selectedProject.value?.name !== resolvedProjectName) {
         history.selectedProject.value = project || null
-        await history.fetchSessions(projectName)
+        await history.fetchSessions(resolvedProjectName)
       }
 
       const session = history.sessions.value.find(s => s.id === sessionId)
       const sessionSummary = session?.summary || ''
 
       await handleClaudeCodeSessionSelected({
-        projectName,
+        projectName: resolvedProjectName,
         sessionId,
         sessionSummary,
         projectDisplayName,
@@ -591,9 +785,9 @@ watch(
     } else {
       // Project-only URL: /cli/project/:projectName
       // Guard: already showing this project with no session
-      if (urlProjectName.value === projectName && !urlSessionId.value) return
+      if (urlProjectName.value === resolvedProjectName && !urlSessionId.value) return
 
-      handleClaudeCodeProjectSelected({ projectName, projectDisplayName })
+      handleClaudeCodeProjectSelected({ projectName: resolvedProjectName, projectDisplayName })
     }
   },
   { immediate: true }
@@ -1049,11 +1243,146 @@ function handleOpenFile(filePath: string) {
         @session-deleted="handleSessionDeleted"
         @project-renamed="handleProjectRenamed"
         @project-deleted="handleProjectDeleted"
+        @config-panel-selected="handleConfigPanelSelected"
+        @settings-toggled="handleSettingsToggled"
       />
     </div>
 
-    <!-- Right Panel - Chat Interface -->
+    <!-- Right Panel -->
     <div class="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+
+      <!-- ── Settings View ── -->
+      <template v-if="isOnSettingsRoute">
+
+        <!-- Settings Landing (no specific panel selected) -->
+        <template v-if="!activeConfigPanel">
+          <div class="shrink-0 border-b h-14 flex items-center gap-3 px-4" style="border-color: var(--border-subtle); background: var(--surface-base);">
+            <UIcon name="i-lucide-settings-2" class="size-4" style="color: var(--accent);" />
+            <h3 class="text-[14px] font-semibold" style="color: var(--text-primary);">Project Settings</h3>
+            <span class="text-[11px] font-mono" style="color: var(--text-tertiary);">
+              {{ currentProjectDisplayName || selectedProjectPath }}
+            </span>
+          </div>
+          <div class="flex-1 flex items-center justify-center">
+            <div class="text-center max-w-sm px-6">
+              <div class="size-16 mx-auto mb-5 rounded-2xl flex items-center justify-center" style="background: var(--surface-raised);">
+                <UIcon name="i-lucide-settings-2" class="size-8" style="color: var(--text-tertiary);" />
+              </div>
+              <h2 class="text-[17px] font-semibold mb-2" style="color: var(--text-primary);">Project Settings</h2>
+              <p class="text-[13px] leading-relaxed" style="color: var(--text-secondary);">
+                Choose a setting from the sidebar to configure this project.
+              </p>
+            </div>
+          </div>
+        </template>
+
+        <!-- Specific Config Panel -->
+        <template v-else>
+        <!-- Config Header -->
+        <div class="shrink-0 border-b h-14 flex items-center gap-3 px-4" style="border-color: var(--border-subtle); background: var(--surface-base);">
+          <button
+            class="p-1.5 rounded-lg hover-bg transition-all"
+            style="background: var(--surface-raised);"
+            @click="closeConfigPanel"
+          >
+            <UIcon name="i-lucide-arrow-left" class="size-4" style="color: var(--text-secondary);" />
+          </button>
+          <UIcon
+            :name="activeConfigPanel === 'claude-md' ? 'i-lucide-file-text' : 'i-lucide-palette'"
+            class="size-4"
+            style="color: var(--accent);"
+          />
+          <h3 class="text-[14px] font-semibold" style="color: var(--text-primary);">
+            {{ activeConfigPanel === 'claude-md' ? 'CLAUDE.md' : 'Output Style' }}
+          </h3>
+          <span class="text-[11px] font-mono" style="color: var(--text-tertiary);">
+            {{ currentProjectDisplayName || selectedProjectPath }}
+          </span>
+        </div>
+
+        <!-- CLAUDE.md Panel -->
+        <div v-if="activeConfigPanel === 'claude-md'" class="flex-1 flex flex-col min-h-0 min-w-0">
+          <!-- Loading -->
+          <div v-if="isLoadingClaudeMd" class="flex-1 flex items-center justify-center">
+            <UIcon name="i-lucide-loader-2" class="size-6 animate-spin" style="color: var(--text-secondary);" />
+          </div>
+
+          <!-- InstructionEditor fills the panel -->
+          <template v-else>
+            <div class="shrink-0 flex items-center justify-between px-4 py-2 border-b" style="border-color: var(--border-subtle);">
+              <p class="text-[12px]" style="color: var(--text-secondary);">
+                Project instructions that Claude Code reads automatically.
+              </p>
+              <button
+                class="px-4 py-1.5 rounded-lg text-[12px] font-semibold transition-all flex items-center gap-2"
+                :style="{ background: 'var(--accent)', color: 'white', opacity: isSavingClaudeMd ? 0.7 : 1 }"
+                :disabled="isSavingClaudeMd"
+                @click="saveClaudeMd"
+              >
+                <UIcon v-if="isSavingClaudeMd" name="i-lucide-loader-2" class="size-3.5 animate-spin" />
+                <UIcon v-else name="i-lucide-save" class="size-3.5" />
+                {{ isSavingClaudeMd ? 'Saving...' : 'Save' }}
+              </button>
+            </div>
+            <InstructionEditor
+              v-model="claudeMdDraft"
+              class="flex-1 min-h-0"
+              agent-name="CLAUDE.md"
+              :agent-description="currentProjectDisplayName || 'Project instructions'"
+              placeholder="# CLAUDE.md&#10;&#10;Write project instructions here..."
+            />
+          </template>
+        </div>
+
+        <!-- Output Style Panel -->
+        <div v-else-if="activeConfigPanel === 'output-style'" class="flex-1 overflow-y-auto">
+          <div class="max-w-3xl mx-auto px-6 py-8 space-y-6">
+            <div class="flex items-center justify-between">
+              <p class="text-[12px]" style="color: var(--text-secondary);">
+                Default output style for new sessions in this project. Saved to <code class="text-[11px] px-1 py-0.5 rounded" style="background: var(--surface-raised);">.claude/settings.local.json</code>
+              </p>
+              <button
+                class="px-4 py-2 rounded-xl text-[12px] font-semibold transition-all flex items-center gap-2"
+                :style="{ background: 'var(--accent)', color: 'white', opacity: isSavingConfigSettings ? 0.7 : 1 }"
+                :disabled="isSavingConfigSettings"
+                @click="saveOutputStyleSetting"
+              >
+                <UIcon v-if="isSavingConfigSettings" name="i-lucide-loader-2" class="size-3.5 animate-spin" />
+                <UIcon v-else name="i-lucide-save" class="size-3.5" />
+                {{ isSavingConfigSettings ? 'Saving...' : 'Save' }}
+              </button>
+            </div>
+
+            <div class="grid gap-3">
+              <button
+                v-for="style in configOutputStyles"
+                :key="style.id"
+                class="w-full flex items-start gap-4 p-4 rounded-xl text-left transition-all border"
+                :style="{
+                  background: selectedOutputStyleId2 === style.id ? 'var(--accent-muted)' : 'var(--surface-raised)',
+                  borderColor: selectedOutputStyleId2 === style.id ? 'var(--accent)' : 'var(--border-subtle)',
+                }"
+                @click="selectedOutputStyleId2 = style.id"
+              >
+                <div class="size-10 rounded-xl flex items-center justify-center shrink-0" :style="{ background: selectedOutputStyleId2 === style.id ? 'var(--accent)' : 'var(--surface-sunken)' }">
+                  <UIcon name="i-lucide-palette" class="size-5" :style="{ color: selectedOutputStyleId2 === style.id ? 'white' : 'var(--text-tertiary)' }" />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13px] font-semibold" style="color: var(--text-primary);">{{ style.name }}</span>
+                    <UIcon v-if="selectedOutputStyleId2 === style.id" name="i-lucide-check" class="size-4" style="color: var(--accent);" />
+                  </div>
+                  <p class="text-[12px] mt-0.5" style="color: var(--text-secondary);">{{ style.description }}</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+        </template>
+      </template>
+
+      <!-- ── Chat Interface (default view) ── -->
+      <template v-else>
       <!-- Header - Fixed height for consistent alignment -->
       <div
         :key="urlSessionId || 'live'"
@@ -1391,6 +1720,7 @@ function handleOpenFile(filePath: string) {
         />
       </div>
 
+      </template>
     </div>
   </div>
 

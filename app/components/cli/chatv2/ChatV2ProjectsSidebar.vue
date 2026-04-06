@@ -11,6 +11,8 @@ const emit = defineEmits<{
   (e: 'sessionDeleted', payload: { projectName: string; sessionId: string }): void
   (e: 'projectRenamed', payload: { projectName: string; newName: string }): void
   (e: 'projectDeleted', payload: { projectName: string }): void
+  (e: 'configPanelSelected', panel: string): void
+  (e: 'settingsToggled', open: boolean): void
 }>()
 
 const props = defineProps<{
@@ -42,8 +44,6 @@ const selectedOutputStyleName = computed(() => {
   const style = outputStyles.value.find(s => s.id === selectedOutputStyleId.value)
   return style ? style.name : 'Default'
 })
-const showOutputStyleMenu = ref(false)
-const outputStyleMenuRef = ref<HTMLElement | null>(null)
 
 // View mode: 'projects' or 'sessions'
 const viewMode = ref<'projects' | 'sessions'>('projects')
@@ -73,8 +73,6 @@ const folderInputRef = ref<HTMLInputElement | null>(null)
 // Directory settings state
 const dirSettings = ref<any>({})
 const isLoadingDirSettings = ref(false)
-const isSavingDirSettings = ref(false)
-
 async function fetchDirSettings() {
   if (!selectedProject.value) return
   isLoadingDirSettings.value = true
@@ -96,33 +94,16 @@ async function fetchDirSettings() {
   }
 }
 
-async function saveDirSettings() {
-  if (!selectedProject.value) return
-  isSavingDirSettings.value = true
-  try {
-    await $fetch('/api/projects/settings', {
-      method: 'PUT',
-      body: {
-        path: selectedProject.value.path,
-        settings: dirSettings.value
-      }
-    })
-    const toast = useToast()
-    toast.add({ title: 'Settings saved', color: 'success', duration: 2000 })
-  } catch (e: any) {
-    const toast = useToast()
-    toast.add({ title: 'Failed to save settings', description: e.message, color: 'error' })
-  } finally {
-    isSavingDirSettings.value = false
-  }
-}
-
 function toggleSessionsSubView() {
   sessionsSubView.value = sessionsSubView.value === 'sessions' ? 'config' : 'sessions'
   if (sessionsSubView.value === 'config') {
     fetchDirSettings()
+    emit('settingsToggled', true)
+  } else {
+    emit('settingsToggled', false)
   }
 }
+
 
 // Watch for output style changes in config view to update dirSettings
 watch(selectedOutputStyleId, (newId) => {
@@ -134,21 +115,9 @@ watch(selectedOutputStyleId, (newId) => {
   }
 })
 
-// Close dropdown on click outside
-function handleClickOutside(e: MouseEvent) {
-  if (outputStyleMenuRef.value && !outputStyleMenuRef.value.contains(e.target as Node)) {
-    showOutputStyleMenu.value = false
-  }
-}
-
 onMounted(async () => {
   await fetchProjects()
   await fetchOutputStyles()
-  document.addEventListener('click', handleClickOutside)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('click', handleClickOutside)
 })
 
 // Handle project click
@@ -184,6 +153,7 @@ function handleSessionClick(session: typeof sessions.value[0]) {
 // Go back to projects list
 function goBackToProjects() {
   viewMode.value = 'projects'
+  sessionsSubView.value = 'sessions'
   clearSelection()
   emit('selectionCleared')
 }
@@ -407,9 +377,9 @@ function confirmDelete() {
           </p>
         </div>
 
-        <!-- Settings Toggle (only in sessions view) -->
+        <!-- Settings Toggle (only in sessions view, hidden for .claude default dir) -->
         <button
-          v-if="viewMode === 'sessions'"
+          v-if="viewMode === 'sessions' && selectedProject && !selectedProject.path?.endsWith('/.claude')"
           class="p-1.5 rounded-lg hover-bg transition-all shrink-0"
           style="background: var(--surface-raised);"
           :title="sessionsSubView === 'sessions' ? 'Directory Settings' : 'Back to Sessions'"
@@ -437,8 +407,8 @@ function confirmDelete() {
 
     <!-- Sidebar Content -->
     <template v-if="!collapsed">
-      <!-- New Chat Button & Folder Input -->
-      <div class="shrink-0 p-2 border-b" style="border-color: var(--border-subtle);">
+      <!-- New Chat Button & Folder Input (hidden in config mode) -->
+      <div v-if="sessionsSubView !== 'config'" class="shrink-0 p-2 border-b" style="border-color: var(--border-subtle);">
         <div v-if="!isChoosingFolder" class="flex items-center gap-1.5">
           <button
             class="flex-1 px-3 py-2 rounded-lg text-[12px] font-medium hover-bg transition-all flex items-center justify-center gap-2"
@@ -713,96 +683,43 @@ function confirmDelete() {
           </div>
         </div>
 
-        <!-- Config View -->
-        <div v-else class="p-4 space-y-6">
-          <div class="space-y-4">
-            <div class="flex items-center gap-2 mb-2">
-              <UIcon name="i-lucide-settings-2" class="size-4" style="color: var(--accent);" />
-              <h4 class="text-[12px] font-bold uppercase tracking-wider" style="color: var(--text-primary);">Project Settings</h4>
-            </div>
-            
-            <div v-if="isLoadingDirSettings" class="flex items-center justify-center py-4">
-              <UIcon name="i-lucide-loader-2" class="size-5 animate-spin" style="color: var(--text-secondary);" />
-            </div>
-            
-            <div v-else class="space-y-5">
-              <!-- Output Style Setting -->
-              <div class="space-y-2">
-                <label class="text-[11px] font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Default Output Mode</label>
-                <div ref="outputStyleMenuRef" class="relative">
-                  <button
-                    class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12px] font-medium transition-all text-left"
-                    style="background: var(--surface-raised); border: 1px solid var(--border-subtle); color: var(--text-primary);"
-                    @click="showOutputStyleMenu = !showOutputStyleMenu"
-                  >
-                    <div class="flex items-center gap-2 truncate">
-                      <UIcon name="i-lucide-palette" class="size-3.5" style="color: var(--accent);" />
-                      <span class="truncate">{{ selectedOutputStyleName }}</span>
-                    </div>
-                    <UIcon name="i-lucide-chevron-down" class="size-3 transition-transform" :class="{ 'rotate-180': showOutputStyleMenu }" />
-                  </button>
-
-                  <Transition name="modal">
-                    <div
-                      v-if="showOutputStyleMenu"
-                      class="absolute top-full left-0 right-0 mt-1 rounded-xl border shadow-xl z-50 overflow-hidden"
-                      style="background: var(--surface-overlay); border-color: var(--border-subtle);"
-                    >
-                      <div class="max-h-[240px] overflow-y-auto custom-scrollbar p-1">
-                        <button
-                          v-for="style in outputStyles"
-                          :key="style.id"
-                          class="w-full flex flex-col gap-0.5 px-3 py-2 rounded-lg transition-all text-left group"
-                          :class="selectedOutputStyleId === style.id ? '' : 'hover-bg'"
-                          :style="{ 
-                            background: selectedOutputStyleId === style.id ? 'var(--accent-muted)' : '',
-                            color: selectedOutputStyleId === style.id ? 'var(--accent)' : 'var(--text-primary)'
-                          }"
-                          @click="selectedOutputStyleId = style.id; showOutputStyleMenu = false"
-                        >
-                          <div class="flex items-center justify-between">
-                            <span class="text-[12px] font-medium">{{ style.name }}</span>
-                            <UIcon v-if="selectedOutputStyleId === style.id" name="i-lucide-check" class="size-3.5" />
-                          </div>
-                          <div class="text-[10px] text-meta line-clamp-1 group-hover:line-clamp-none transition-all">
-                            {{ style.description }}
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-                  </Transition>
-                </div>
-                <p class="text-[10px] text-meta leading-relaxed italic">
-                  This sets the default style for new sessions in this folder. Saved to .claude/settings.local.json
-                </p>
-              </div>
-
-              <!-- Action Buttons -->
-              <div class="pt-4 border-t border-subtle flex flex-col gap-2">
-                <button
-                  class="w-full py-2 rounded-xl text-[12px] font-semibold transition-all flex items-center justify-center gap-2"
-                  :style="{ 
-                    background: 'var(--accent)', 
-                    color: 'white',
-                    opacity: isSavingDirSettings ? 0.7 : 1
-                  }"
-                  :disabled="isSavingDirSettings"
-                  @click="saveDirSettings"
-                >
-                  <UIcon v-if="isSavingDirSettings" name="i-lucide-loader-2" class="size-3.5 animate-spin" />
-                  <UIcon v-else name="i-lucide-save" class="size-3.5" />
-                  {{ isSavingDirSettings ? 'Saving...' : 'Save Changes' }}
-                </button>
-                <button
-                  class="w-full py-2 rounded-xl text-[12px] font-medium transition-all hover-bg"
-                  style="color: var(--text-secondary);"
-                  @click="toggleSessionsSubView"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+        <!-- Config View - Navigation buttons -->
+        <div v-else class="p-3 space-y-1">
+          <div class="stagger-item flex items-center gap-2 px-2 mb-3" :style="{ animationDelay: '0ms' }">
+            <UIcon name="i-lucide-settings-2" class="size-4" style="color: var(--accent);" />
+            <h4 class="text-[12px] font-bold uppercase tracking-wider" style="color: var(--text-primary);">Project Settings</h4>
           </div>
+
+          <button
+            class="stagger-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover-bg group"
+            :style="{ animationDelay: '40ms' }"
+            @click="emit('configPanelSelected', 'claude-md')"
+          >
+            <div class="size-8 rounded-lg flex items-center justify-center shrink-0" style="background: var(--surface-raised);">
+              <UIcon name="i-lucide-file-text" class="size-4" style="color: var(--accent);" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-[12px] font-medium" style="color: var(--text-primary);">CLAUDE.md</div>
+              <div class="text-[10px]" style="color: var(--text-tertiary);">Project instructions for Claude</div>
+            </div>
+            <UIcon name="i-lucide-chevron-right" class="size-3.5 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style="color: var(--text-tertiary);" />
+          </button>
+
+          <button
+            class="stagger-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover-bg group"
+            :style="{ animationDelay: '80ms' }"
+            @click="emit('configPanelSelected', 'output-style')"
+          >
+            <div class="size-8 rounded-lg flex items-center justify-center shrink-0" style="background: var(--surface-raised);">
+              <UIcon name="i-lucide-palette" class="size-4" style="color: var(--accent);" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-[12px] font-medium" style="color: var(--text-primary);">Output Style</div>
+              <div class="text-[10px]" style="color: var(--text-tertiary);">{{ selectedOutputStyleName }}</div>
+            </div>
+            <UIcon name="i-lucide-chevron-right" class="size-3.5 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style="color: var(--text-tertiary);" />
+          </button>
+
         </div>
       </div>
     </template>
