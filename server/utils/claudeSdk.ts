@@ -19,9 +19,29 @@ interface QueryOptions {
 interface QueryInstance {
   interrupt(): Promise<void>
   [Symbol.asyncIterator](): AsyncIterator<any>
+  peerId: string
 }
 
 const activeQueries = new Map<string, QueryInstance>()
+
+/**
+ * Cleanup function to abort queries for a specific peer
+ */
+export async function cleanupQueries(peerId: string): Promise<void> {
+  console.log(`[Claude SDK] Cleaning up queries for peer: ${peerId}`)
+
+  for (const [sessionId, queryInstance] of activeQueries.entries()) {
+    if (queryInstance.peerId === peerId) {
+      console.log(`[Claude SDK] Interrupting query for session ${sessionId}`)
+      try {
+        await queryInstance.interrupt()
+      } catch (e) {
+        console.error(`[Claude SDK] Error interrupting query during cleanup:`, e)
+      }
+      activeQueries.delete(sessionId)
+    }
+  }
+}
 
 /**
  * Query Claude SDK and stream responses via WebSocket
@@ -89,7 +109,9 @@ export async function queryClaudeChat(
       // Capture session ID from SDK (for new sessions)
       if (message.session_id && !capturedSessionId) {
         capturedSessionId = message.session_id
-        activeQueries.set(capturedSessionId, queryInstance)
+        const extendedInstance = queryInstance as any as QueryInstance
+        extendedInstance.peerId = ws.id
+        activeQueries.set(capturedSessionId, extendedInstance)
 
         // Send session-created event only once for new sessions
         if (!options.sessionId && !sessionCreatedSent) {
@@ -102,6 +124,11 @@ export async function queryClaudeChat(
             content: capturedSessionId,
           })
         }
+      } else if (options.sessionId && capturedSessionId && !activeQueries.has(capturedSessionId)) {
+        // Register resumed session's query instance for interrupt support
+        const extendedInstance = queryInstance as any as QueryInstance
+        extendedInstance.peerId = ws.id
+        activeQueries.set(capturedSessionId, extendedInstance)
       }
 
       // Normalize SDK message (handles thinking, tool_use, text, etc.)
@@ -169,6 +196,13 @@ export async function interruptQuery(sessionId: string): Promise<boolean> {
     }
   }
   return false
+}
+
+/**
+ * Check if a session has an active query
+ */
+export function isSessionActive(sessionId: string): boolean {
+  return activeQueries.has(sessionId)
 }
 
 /**

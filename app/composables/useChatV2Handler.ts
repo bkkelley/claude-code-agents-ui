@@ -20,6 +20,7 @@ export function useChatV2Handler() {
   const isConnected = ref(false)
   const error = ref<string | null>(null)
   const currentSessionId = ref<string | null>(null)
+  const sessionCreatedWorkingDir = ref<string | null>(null)
 
   // Integrate streaming buffer
   const streamingBuffer = useStreamingBuffer()
@@ -173,6 +174,10 @@ export function useChatV2Handler() {
 
         currentSessionId.value = newSessionId
         sessionStore.setActiveSession(currentSessionId.value)
+        // Capture the working dir from the server so the watcher can find the right project
+        if (message.metadata?.workingDir) {
+          sessionCreatedWorkingDir.value = message.metadata.workingDir as string
+        }
         break
 
       case 'stream_delta':
@@ -188,17 +193,35 @@ export function useChatV2Handler() {
         break
 
       case 'text':
-      case 'tool_result':
         // Add to session store for display
         if (sessionId) {
           sessionStore.appendRealtime(sessionId, message)
         }
         break
 
+      case 'tool_result':
+        // Ensure result uses a unique ID so it doesn't overwrite tool_use, 
+        // but link it via toolId so convertToDisplayMessages can pair them.
+        if (sessionId) {
+          const rawToolId = message.metadata?.toolUseId || message.toolId || 'unknown'
+          const toolUseId = rawToolId.startsWith('__tool_') ? rawToolId : `__tool_${rawToolId}`
+          sessionStore.appendRealtime(sessionId, {
+            ...message,
+            id: `result_${message.id || Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+            toolId: toolUseId,
+          })
+        }
+        break
+
       case 'tool_use':
         // Use well-known ID for tool_use so multiple updates go to same message
         if (sessionId) {
-          const toolUseId = `__tool_${message.metadata?.toolUseId || message.toolId || 'unknown'}`
+          const toolId = message.metadata?.toolUseId || message.toolId || 'unknown'
+          const toolUseId = toolId.startsWith('__tool_') ? toolId : `__tool_${toolId}`
+          
+          // Set active tool ID in streaming buffer so subsequent deltas go here
+          streamingBuffer.setActiveToolId(toolUseId)
+          
           sessionStore.appendRealtime(sessionId, {
             ...message,
             id: toolUseId,
@@ -217,13 +240,18 @@ export function useChatV2Handler() {
         break
 
       case 'permission_request':
+        // Use consistent tool ID if this is related to a tool call (like AskUserQuestion)
+        const rawToolId = message.requestId || message.id
+        const toolUseId = rawToolId.startsWith('__tool_') ? rawToolId : `__tool_${rawToolId}`
+        const unifiedMessage = { ...message, id: toolUseId }
+
         // Add to permissions
-        const permission = permissions.createFromMessage(message)
+        const permission = permissions.createFromMessage(unifiedMessage)
         permissions.addPending(permission)
         // Also add to session store
         if (sessionId) {
           sessionStore.addPermission(sessionId, permission)
-          sessionStore.appendRealtime(sessionId, message)
+          sessionStore.appendRealtime(sessionId, unifiedMessage)
         }
         break
 
@@ -324,6 +352,7 @@ export function useChatV2Handler() {
       permissionMode?: PermissionMode
       model?: string
       effort?: EffortLevel
+      outputStyleId?: string
       images?: string[]
     } = {}
   ): boolean {
@@ -360,6 +389,7 @@ export function useChatV2Handler() {
       permissionMode?: PermissionMode
       model?: string
       effort?: EffortLevel
+      outputStyleId?: string
       images?: string[]
     } = {}
   ): boolean {
@@ -377,6 +407,7 @@ export function useChatV2Handler() {
       permissionMode: options.permissionMode || permissions.permissionMode.value,
       model: options.model,
       effort: options.effort,
+      outputStyleId: options.outputStyleId,
       images: options.images,
     }
 
@@ -419,16 +450,32 @@ export function useChatV2Handler() {
   function respondToPermission(
     permissionId: string,
     decision: 'allow' | 'deny',
-    remember = false
+    remember = false,
+    updatedInput?: any
   ): boolean {
     const message: ChatV2WebSocketMessage = {
       type: 'permission_response',
       permissionId,
       decision,
       remember,
+      ...(updatedInput !== undefined && { updatedInput }),
     }
 
-    return sendMessage(message)
+    const sent = sendMessage(message)
+
+    // Persist decision on the message in the store
+    if (sent && currentSessionId.value) {
+      // Remove from pending permissions
+      permissions.removePending(permissionId)
+
+      let answer: string | undefined
+      if (updatedInput?.answers) {
+        answer = Object.values(updatedInput.answers as Record<string, string>).join(', ')
+      }
+      sessionStore.updateMessageDecision(currentSessionId.value, permissionId, decision, answer)
+    }
+
+    return sent
   }
 
   /**
@@ -463,22 +510,27 @@ export function useChatV2Handler() {
     }
   })
 
-  // Watch tool input buffer and update store (debounced via buffer's 100ms flush)
-  watch(streamingBuffer.accumulatedToolInput, (newToolInput) => {
-    if (streamingBuffer.isStreaming.value && streamingBuffer.currentSessionId.value && newToolInput) {
-      sessionStore.updateToolUse(streamingBuffer.currentSessionId.value, newToolInput)
+  // Watch tool input map and update store
+  watch(streamingBuffer.toolInputsMap, (newMap) => {
+    if (streamingBuffer.isStreaming.value && currentSessionId.value) {
+      for (const [toolId, toolInput] of newMap.entries()) {
+        sessionStore.updateToolUseById(currentSessionId.value, toolId, toolInput)
+      }
     }
-  })
+  }, { deep: true })
 
   return {
     // State
     isConnected: readonly(isConnected),
     error: readonly(error),
     currentSessionId: readonly(currentSessionId),
+    sessionCreatedWorkingDir: readonly(sessionCreatedWorkingDir),
 
     // Streaming state
     isStreaming: streamingBuffer.isStreaming,
     streamingText: streamingBuffer.accumulatedText,
+    activeToolId: streamingBuffer.activeToolId,
+    toolInputsMap: streamingBuffer.toolInputsMap,
 
     // Permissions
     permissions,

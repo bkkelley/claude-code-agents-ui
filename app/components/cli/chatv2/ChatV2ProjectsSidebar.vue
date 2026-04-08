@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useClaudeCodeHistory } from '~/composables/useClaudeCodeHistory'
+import { formatRelativeTime } from '~/utils/messageFormatting'
 
 const emit = defineEmits<{
   (e: 'sessionSelected', payload: { projectName: string; sessionId: string; sessionSummary: string; projectDisplayName: string }): void
@@ -11,6 +12,8 @@ const emit = defineEmits<{
   (e: 'sessionDeleted', payload: { projectName: string; sessionId: string }): void
   (e: 'projectRenamed', payload: { projectName: string; newName: string }): void
   (e: 'projectDeleted', payload: { projectName: string }): void
+  (e: 'configPanelSelected', panel: string): void
+  (e: 'settingsToggled', open: boolean): void
 }>()
 
 const props = defineProps<{
@@ -35,44 +38,103 @@ const {
   fetchSessions
 } = useClaudeCodeHistory()
 
+// Output style selector
+const { styles: outputStyles, fetchStyles: fetchOutputStyles } = useOutputStyles()
+const selectedOutputStyleId = useState('chat-active-output-style-id', () => 'default')
+const selectedOutputStyleName = computed(() => {
+  const style = outputStyles.value.find(s => s.id === selectedOutputStyleId.value)
+  return style ? style.name : 'Default'
+})
+
 // View mode: 'projects' or 'sessions'
 const viewMode = ref<'projects' | 'sessions'>('projects')
+const sessionsSubView = ref<'sessions' | 'config'>('sessions')
 
-// New folder input state
-const isChoosingFolder = ref(false)
-const folderInput = ref('')
-const folderInputRef = ref<HTMLInputElement | null>(null)
+const route = useRoute()
 
-// Manual refresh state
+// Sync viewMode and sessionsSubView with route (important for page refresh)
+watch(() => ({
+  project: selectedProject.value,
+  isSettings: route.path.endsWith('/settings')
+}), ({ project, isSettings }) => {
+  if (project) {
+    viewMode.value = 'sessions'
+    sessionsSubView.value = isSettings ? 'config' : 'sessions'
+  } else {
+    viewMode.value = 'projects'
+    sessionsSubView.value = 'sessions'
+  }
+}, { immediate: true })
+
+// Refresh state
 const isRefreshing = ref(false)
 
 async function handleManualRefresh() {
-  if (isRefreshing.value) return
   isRefreshing.value = true
-  
   try {
     if (viewMode.value === 'projects') {
       await fetchProjects()
-    } else if (viewMode.value === 'sessions' && selectedProject.value) {
+    } else if (selectedProject.value) {
       await fetchSessions(selectedProject.value.name)
     }
-    // Add small delay to show feedback
-    await new Promise(resolve => setTimeout(resolve, 500))
   } finally {
     isRefreshing.value = false
   }
 }
 
-// Watch for session created event from SDK
-watch(() => props.currentSessionId, (newId) => {
-  if (newId && selectedProject.value) {
-    viewMode.value = 'sessions'
+// Folder selection for new chat
+const isChoosingFolder = ref(false)
+const folderInput = ref('')
+const folderInputRef = ref<HTMLInputElement | null>(null)
+
+// Directory settings state
+const dirSettings = ref<any>({})
+const isLoadingDirSettings = ref(false)
+async function fetchDirSettings() {
+  if (!selectedProject.value) return
+  isLoadingDirSettings.value = true
+  try {
+    dirSettings.value = await $fetch('/api/projects/settings', {
+      query: { path: selectedProject.value.path }
+    })
+    // Sync local directory outputStyle with the global selector if set
+    if (dirSettings.value.outputStyle) {
+      const style = outputStyles.value.find(s => s.name.toLowerCase() === dirSettings.value.outputStyle.toLowerCase() || s.id === dirSettings.value.outputStyle.toLowerCase())
+      if (style) {
+        selectedOutputStyleId.value = style.id
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch directory settings:', e)
+  } finally {
+    isLoadingDirSettings.value = false
+  }
+}
+
+function toggleSessionsSubView() {
+  sessionsSubView.value = sessionsSubView.value === 'sessions' ? 'config' : 'sessions'
+  if (sessionsSubView.value === 'config') {
+    fetchDirSettings()
+    emit('settingsToggled', true)
+  } else {
+    emit('settingsToggled', false)
+  }
+}
+
+
+// Watch for output style changes in config view to update dirSettings
+watch(selectedOutputStyleId, (newId) => {
+  if (sessionsSubView.value === 'config') {
+    const style = outputStyles.value.find(s => s.id === newId)
+    if (style) {
+      dirSettings.value.outputStyle = style.name
+    }
   }
 })
 
-// Load projects on mount
 onMounted(async () => {
   await fetchProjects()
+  await fetchOutputStyles()
 })
 
 // Handle project click
@@ -108,6 +170,7 @@ function handleSessionClick(session: typeof sessions.value[0]) {
 // Go back to projects list
 function goBackToProjects() {
   viewMode.value = 'projects'
+  sessionsSubView.value = 'sessions'
   clearSelection()
   emit('selectionCleared')
 }
@@ -323,13 +386,29 @@ function confirmDelete() {
         </button>
 
         <div class="flex-1 min-w-0 flex flex-col justify-center">
-          <h3 class="text-[13px] font-semibold break-words leading-tight" style="color: var(--text-primary);">
+          <h3
+            class="text-[13px] font-semibold break-words leading-tight transition-colors"
+            :class="viewMode === 'sessions' ? 'cursor-pointer hover:text-accent' : ''"
+            style="color: var(--text-primary);"
+            @click="viewMode === 'sessions' ? goBackToProjects() : null"
+          >
             {{ viewMode === 'projects' ? 'Claude Code History' : selectedProject?.displayName || 'Sessions' }}
           </h3>
-          <p v-if="viewMode === 'sessions' && selectedProject" class="text-[10px] break-all leading-tight mt-0.5" style="color: var(--text-tertiary);">
+          <p v-if="viewMode === 'sessions' && selectedProject" class="text-[10px] truncate leading-tight mt-0.5" style="color: var(--text-tertiary);">
             {{ selectedProject.path }}
           </p>
         </div>
+
+        <!-- Settings Toggle (only in sessions view, hidden for .claude default dir) -->
+        <button
+          v-if="viewMode === 'sessions' && selectedProject && !selectedProject.path?.endsWith('/.claude')"
+          class="p-1.5 rounded-lg hover-bg transition-all shrink-0"
+          style="background: var(--surface-raised);"
+          :title="sessionsSubView === 'sessions' ? 'Directory Settings' : 'Back to Sessions'"
+          @click="toggleSessionsSubView"
+        >
+          <UIcon :name="sessionsSubView === 'sessions' ? 'i-lucide-settings' : 'i-lucide-message-square'" class="size-4" style="color: var(--text-secondary);" />
+        </button>
       </template>
 
       <!-- Toggle button (always visible) -->
@@ -350,8 +429,8 @@ function confirmDelete() {
 
     <!-- Sidebar Content -->
     <template v-if="!collapsed">
-      <!-- New Chat Button & Folder Input -->
-      <div class="shrink-0 p-2 border-b" style="border-color: var(--border-subtle);">
+      <!-- New Chat Button & Folder Input (hidden in config mode) -->
+      <div v-if="sessionsSubView !== 'config'" class="shrink-0 p-2 border-b" style="border-color: var(--border-subtle);">
         <div v-if="!isChoosingFolder" class="flex items-center gap-1.5">
           <button
             class="flex-1 px-3 py-2 rounded-lg text-[12px] font-medium hover-bg transition-all flex items-center justify-center gap-2"
@@ -510,118 +589,165 @@ function confirmDelete() {
         </div>
       </div>
 
-      <!-- Sessions List -->
+      <!-- Sessions List / Config View -->
       <div
         v-else-if="viewMode === 'sessions'"
-        class="flex-1 overflow-y-auto p-2 space-y-1"
-        :class="{ 'pointer-events-none opacity-60': isLoadingMessages }"
+        class="flex-1 overflow-y-auto min-h-0"
       >
-        <!-- Loading state for sessions -->
-        <div v-if="isLoadingSessions && sessions.length === 0" class="flex items-center justify-center py-8">
-          <UIcon name="i-lucide-loader-2" class="size-5 animate-spin" style="color: var(--text-secondary);" />
-        </div>
-
-        <!-- Sessions -->
-        <div
-          v-for="(session, index) in sessions"
-          :key="session.id"
-          class="stagger-item px-3 py-2.5 rounded-lg transition-all group/session min-w-0"
-          :class="isLoadingMessages ? 'cursor-not-allowed' : 'cursor-pointer hover-bg'"
-          :style="{
-            background: selectedSession?.id === session.id || currentSessionId === session.id
-              ? 'var(--accent-light)'
-              : 'var(--surface-raised)',
-            borderLeft: selectedSession?.id === session.id || currentSessionId === session.id
-              ? '3px solid var(--accent)'
-              : '3px solid transparent',
-            animationDelay: `${index * 40}ms`
-          }"
-          @click="handleSessionClick(session)"
-        >
-            <div class="flex items-start gap-1 min-w-0">
-              <div class="flex-1 min-w-0">
-                <!-- Inline edit mode -->
-                <template v-if="editingSessionId === session.id">
-                  <div class="flex items-center gap-1 mb-1">
-                    <input
-                      ref="editInputRef"
-                      v-model="editingInput"
-                      class="flex-1 min-w-0 px-1.5 py-0.5 rounded text-[12px] font-medium outline-none"
-                      style="background: var(--surface-raised); border: 1px solid var(--accent); color: var(--text-primary);"
-                      @keyup.enter="saveEdit"
-                      @keyup.escape="cancelEdit"
-                      @click.stop
-                    />
-                    <button
-                      class="p-1 rounded hover:bg-green-500/20 transition-colors shrink-0"
-                      title="Save"
-                      @click.stop="saveEdit"
-                    >
-                      <UIcon name="i-lucide-check" class="size-3.5" style="color: #22c55e;" />
-                    </button>
-                    <button
-                      class="p-1 rounded hover:bg-red-500/10 transition-colors shrink-0"
-                      title="Cancel"
-                      @click.stop="cancelEdit"
-                    >
-                      <UIcon name="i-lucide-x" class="size-3.5" style="color: var(--text-tertiary);" />
-                    </button>
-                  </div>
-                </template>
-                <!-- Normal title display -->
-                <div
-                  v-else
-                  class="text-[12px] font-medium truncate mb-1"
-                  style="color: var(--text-primary);"
-                >
-                  {{ session.summary || 'Session' }}
-                </div>
-                <div class="flex flex-wrap items-center gap-2 text-[10px]" style="color: var(--text-tertiary);">
-                  <span>{{ session.messageCount }} messages</span>
-                  <span>{{ formatRelativeTime(session.lastActivity) }}</span>
-                </div>
-              </div>
-              <!-- Action icons (visible on hover, hidden when editing) -->
-              <div
-                v-if="editingSessionId !== session.id"
-                class="flex items-center gap-0.5 opacity-0 group-hover/session:opacity-100 transition-opacity shrink-0"
-              >
-                <button
-                  class="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-                  title="Rename"
-                  @click="startEditing(session, $event)"
-                >
-                  <UIcon name="i-lucide-pencil" class="size-3" style="color: var(--text-tertiary);" />
-                </button>
-                <button
-                  class="p-1 rounded hover:bg-red-500/10 transition-colors"
-                  title="Delete"
-                  @click="openDeleteModal(session, $event)"
-                >
-                  <UIcon name="i-lucide-trash-2" class="size-3" style="color: var(--error, #ef4444);" />
-                </button>
-              </div>
-            </div>
-            <div v-if="session.isGrouped" class="mt-1">
-              <span class="text-[9px] px-1.5 py-0.5 rounded" style="background: var(--accent-light); color: var(--accent);">
-                {{ session.groupSize }} related sessions
-              </span>
-            </div>
+        <!-- Sessions View -->
+        <div v-if="sessionsSubView === 'sessions'" class="p-2 space-y-1" :class="{ 'pointer-events-none opacity-60': isLoadingMessages }">
+          <!-- Loading state for sessions -->
+          <div v-if="isLoadingSessions && sessions.length === 0" class="flex items-center justify-center py-8">
+            <UIcon name="i-lucide-loader-2" class="size-5 animate-spin" style="color: var(--text-secondary);" />
           </div>
 
-        <!-- Load more button -->
-        <button
-          v-if="sessionsHasMore && !isLoadingSessions"
-          class="w-full px-3 py-2 rounded-lg text-[11px] font-medium hover-bg transition-all mt-2"
-          style="background: var(--surface-raised); color: var(--text-secondary);"
-          @click="loadMoreSessions"
-        >
-          Load more sessions
-        </button>
+          <!-- Sessions -->
+          <div
+            v-for="(session, index) in sessions"
+            :key="session.id"
+            class="stagger-item px-3 py-2.5 rounded-lg transition-all group/session min-w-0"
+            :class="isLoadingMessages ? 'cursor-not-allowed' : 'cursor-pointer hover-bg'"
+            :style="{
+              background: selectedSession?.id === session.id || currentSessionId === session.id
+                ? 'var(--accent-light)'
+                : 'var(--surface-raised)',
+              borderLeft: selectedSession?.id === session.id || currentSessionId === session.id
+                ? '3px solid var(--accent)'
+                : '3px solid transparent',
+              animationDelay: `${index * 40}ms`
+            }"
+            @click="handleSessionClick(session)"
+          >
+              <div class="flex items-start gap-1 min-w-0">
+                <div class="flex-1 min-w-0">
+                  <!-- Inline edit mode -->
+                  <template v-if="editingSessionId === session.id">
+                    <div class="flex items-center gap-1 mb-1">
+                      <input
+                        ref="editInputRef"
+                        v-model="editingInput"
+                        class="flex-1 min-w-0 px-1.5 py-0.5 rounded text-[12px] font-medium outline-none"
+                        style="background: var(--surface-raised); border: 1px solid var(--accent); color: var(--text-primary);"
+                        @keyup.enter="saveEdit"
+                        @keyup.escape="cancelEdit"
+                        @click.stop
+                      />
+                      <button
+                        class="p-1 rounded hover:bg-green-500/20 transition-colors shrink-0"
+                        title="Save"
+                        @click.stop="saveEdit"
+                      >
+                        <UIcon name="i-lucide-check" class="size-3.5" style="color: #22c55e;" />
+                      </button>
+                      <button
+                        class="p-1 rounded hover:bg-red-500/10 transition-colors shrink-0"
+                        title="Cancel"
+                        @click.stop="cancelEdit"
+                      >
+                        <UIcon name="i-lucide-x" class="size-3.5" style="color: var(--text-tertiary);" />
+                      </button>
+                    </div>
+                  </template>
+                  <!-- Normal title display -->
+                  <div
+                    v-else
+                    class="text-[12px] font-medium truncate mb-1 flex items-center gap-2"
+                    style="color: var(--text-primary);"
+                  >
+                    <div 
+                      v-if="session.isActive" 
+                      class="size-1.5 rounded-full shrink-0 animate-pulse" 
+                      style="background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);"
+                      title="Session is active"
+                    />
+                    <span class="truncate">{{ session.summary || 'Session' }}</span>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-2 text-[10px]" style="color: var(--text-tertiary);">
+                    <span>{{ session.messageCount }} messages</span>
+                    <span>{{ formatRelativeTime(session.lastActivity) }}</span>
+                  </div>
+                </div>
+                <!-- Action icons (visible on hover, hidden when editing) -->
+                <div
+                  v-if="editingSessionId !== session.id"
+                  class="flex items-center gap-0.5 opacity-0 group-hover/session:opacity-100 transition-opacity shrink-0"
+                >
+                  <button
+                    class="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                    title="Rename"
+                    @click="startEditing(session, $event)"
+                  >
+                    <UIcon name="i-lucide-pencil" class="size-3" style="color: var(--text-tertiary);" />
+                  </button>
+                  <button
+                    class="p-1 rounded hover:bg-red-500/10 transition-colors"
+                    title="Delete"
+                    @click="openDeleteModal(session, $event)"
+                  >
+                    <UIcon name="i-lucide-trash-2" class="size-3" style="color: var(--error, #ef4444);" />
+                  </button>
+                </div>
+              </div>
+              <div v-if="session.isGrouped" class="mt-1">
+                <span class="text-[9px] px-1.5 py-0.5 rounded" style="background: var(--accent-light); color: var(--accent);">
+                  {{ session.groupSize }} related sessions
+                </span>
+              </div>
+            </div>
 
-        <!-- Empty state -->
-        <div v-if="sessions.length === 0" class="text-center py-8">
-          <p class="text-[12px]" style="color: var(--text-secondary);">No sessions in this project</p>
+          <!-- Load more button -->
+          <button
+            v-if="sessionsHasMore && !isLoadingSessions"
+            class="w-full px-3 py-2 rounded-lg text-[11px] font-medium hover-bg transition-all mt-2"
+            style="background: var(--surface-raised); color: var(--text-secondary);"
+            @click="loadMoreSessions"
+          >
+            Load more sessions
+          </button>
+
+          <!-- Empty state -->
+          <div v-if="sessions.length === 0" class="text-center py-8">
+            <p class="text-[12px]" style="color: var(--text-secondary);">No sessions in this project</p>
+          </div>
+        </div>
+
+        <!-- Config View - Navigation buttons -->
+        <div v-else class="p-3 space-y-1">
+          <div class="stagger-item flex items-center gap-2 px-2 mb-3" :style="{ animationDelay: '0ms' }">
+            <UIcon name="i-lucide-settings-2" class="size-4" style="color: var(--accent);" />
+            <h4 class="text-[12px] font-bold uppercase tracking-wider" style="color: var(--text-primary);">Project Settings</h4>
+          </div>
+
+          <button
+            class="stagger-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover-bg group"
+            :style="{ animationDelay: '40ms' }"
+            @click="emit('configPanelSelected', 'claude-md')"
+          >
+            <div class="size-8 rounded-lg flex items-center justify-center shrink-0" style="background: var(--surface-raised);">
+              <UIcon name="i-lucide-file-text" class="size-4" style="color: var(--accent);" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-[12px] font-medium" style="color: var(--text-primary);">CLAUDE.md</div>
+              <div class="text-[10px]" style="color: var(--text-tertiary);">Project instructions for Claude</div>
+            </div>
+            <UIcon name="i-lucide-chevron-right" class="size-3.5 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style="color: var(--text-tertiary);" />
+          </button>
+
+          <button
+            class="stagger-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all hover-bg group"
+            :style="{ animationDelay: '80ms' }"
+            @click="emit('configPanelSelected', 'output-style')"
+          >
+            <div class="size-8 rounded-lg flex items-center justify-center shrink-0" style="background: var(--surface-raised);">
+              <UIcon name="i-lucide-palette" class="size-4" style="color: var(--accent);" />
+            </div>
+            <div class="min-w-0">
+              <div class="text-[12px] font-medium" style="color: var(--text-primary);">Output Style</div>
+              <div class="text-[10px]" style="color: var(--text-tertiary);">{{ selectedOutputStyleName }}</div>
+            </div>
+            <UIcon name="i-lucide-chevron-right" class="size-3.5 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style="color: var(--text-tertiary);" />
+          </button>
+
         </div>
       </div>
     </template>

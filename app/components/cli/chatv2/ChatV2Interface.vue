@@ -23,6 +23,7 @@ const {
   isConnected,
   error,
   currentSessionId,
+  sessionCreatedWorkingDir,
   isStreaming,
   streamingText,
   permissions,
@@ -155,10 +156,15 @@ function updateWidth() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // Set the correct width only after mounting on the client to avoid hydration mismatch
+  leftSidebarWidth.value = getDefaultSidebarWidth()
   updateWidth()
   window.addEventListener('resize', updateWidth)
   document.addEventListener('click', handleEffortClickOutside)
+  
+  // Fetch sessions on mount
+  await fetchSessions()
 })
 
 onUnmounted(() => {
@@ -183,7 +189,8 @@ function getDefaultSidebarWidth() {
   if (window.innerWidth < 1280) return 260
   return 320
 }
-const leftSidebarWidth = ref(getDefaultSidebarWidth())
+// Initialize with a stable value to avoid hydration mismatch
+const leftSidebarWidth = ref(320)
 
 const sidebarWidth = computed(() =>
   sidebarCollapsed.value ? '56px' : `${leftSidebarWidth.value}px`
@@ -237,8 +244,6 @@ const isLiveChat = ref(false)
 // Track if we're continuing a history session (showing history + new messages)
 const isContinuingHistory = ref(false)
 
-
-
 // Local loading state with minimum duration for smooth UX
 const isLoadingHistoryWithDelay = ref(false)
 const isInitialScroll = ref(false)
@@ -264,6 +269,9 @@ const selectedPermissionMode = ref<PermissionMode>('default')
 
 // Model selector — options and default come from the shared model registry
 const selectedModel = ref<string>(DEFAULT_MODEL)
+
+// Output style selector
+const selectedOutputStyleId = ref<string>('')
 
 // Sync model selection with historical session if available
 watch(() => history.selectedSession.value, (newSession) => {
@@ -293,6 +301,146 @@ function handleEffortClickOutside(e: MouseEvent) {
   }
 }
 
+// Selected project path (from history selection or working dir)
+const selectedProjectPath = computed(() => {
+  return history.selectedProject.value?.path || localWorkingDir.value || null
+})
+
+// ── Config Panel (rendered in main content area) ──
+const activeConfigPanel = ref<string | null>(null)
+
+// Whether we're on the settings route (controls main panel view)
+const isOnSettingsRoute = ref(false)
+
+function handleSettingsToggled(open: boolean) {
+  if (open) {
+    isOnSettingsRoute.value = true
+    activeConfigPanel.value = null // Start on landing page
+    if (urlProjectName.value) {
+      const targetPath = `/cli/project/${encodeURIComponent(urlProjectName.value)}/settings`
+      if (route.path !== targetPath) {
+        navigateTo(targetPath, { replace: false })
+      }
+    }
+  } else {
+    isOnSettingsRoute.value = false
+    activeConfigPanel.value = null
+    if (urlProjectName.value) {
+      const targetPath = `/cli/project/${encodeURIComponent(urlProjectName.value)}`
+      if (route.path !== targetPath) {
+        navigateTo(targetPath, { replace: false })
+      }
+    }
+  }
+}
+
+function handleConfigPanelSelected(panel: string) {
+  activeConfigPanel.value = panel
+  if (panel === 'claude-md') {
+    fetchClaudeMd()
+  } else if (panel === 'output-style') {
+    fetchOutputStyles()
+    fetchConfigDirSettings()
+  }
+}
+
+function closeConfigPanel() {
+  activeConfigPanel.value = null
+}
+
+// Output styles for config panel
+const { styles: configOutputStyles, fetchStyles: fetchOutputStyles } = useOutputStyles()
+const selectedOutputStyleId2 = useState('chat-active-output-style-id', () => 'default')
+const selectedOutputStyleName = computed(() => {
+  const style = configOutputStyles.value.find(s => s.id === selectedOutputStyleId2.value)
+  return style ? style.name : 'Default'
+})
+
+// CLAUDE.md state
+const claudeMdExists = ref(false)
+const claudeMdContent = ref('')
+const claudeMdDraft = ref('')
+const isLoadingClaudeMd = ref(false)
+const isSavingClaudeMd = ref(false)
+
+// Project settings for output style
+const configDirSettings = ref<any>({})
+const isSavingConfigSettings = ref(false)
+
+async function fetchClaudeMd() {
+  const projectPath = selectedProjectPath.value
+  if (!projectPath) return
+  isLoadingClaudeMd.value = true
+  try {
+    const res = await $fetch<{ exists: boolean; content: string }>('/api/projects/claude-md', {
+      query: { path: projectPath }
+    })
+    claudeMdExists.value = res.exists
+    claudeMdContent.value = res.content
+    claudeMdDraft.value = res.exists ? res.content : `# CLAUDE.md\n\nProject instructions for Claude Code.\n`
+  } catch (e) {
+    console.error('Failed to fetch CLAUDE.md:', e)
+  } finally {
+    isLoadingClaudeMd.value = false
+  }
+}
+
+async function saveClaudeMd() {
+  const projectPath = selectedProjectPath.value
+  if (!projectPath) return
+  isSavingClaudeMd.value = true
+  try {
+    await $fetch('/api/projects/claude-md', {
+      method: 'PUT',
+      body: { path: projectPath, content: claudeMdDraft.value }
+    })
+    claudeMdContent.value = claudeMdDraft.value
+    claudeMdExists.value = true
+    toast.add({ title: 'CLAUDE.md saved', color: 'success', duration: 2000 })
+  } catch (e: any) {
+    toast.add({ title: 'Failed to save CLAUDE.md', description: e.message, color: 'error' })
+  } finally {
+    isSavingClaudeMd.value = false
+  }
+}
+
+async function fetchConfigDirSettings() {
+  const projectPath = selectedProjectPath.value
+  if (!projectPath) return
+  try {
+    configDirSettings.value = await $fetch('/api/projects/settings', {
+      query: { path: projectPath }
+    })
+    if (configDirSettings.value.outputStyle) {
+      const style = configOutputStyles.value.find(
+        s => s.name.toLowerCase() === configDirSettings.value.outputStyle.toLowerCase() || s.id === configDirSettings.value.outputStyle.toLowerCase()
+      )
+      if (style) selectedOutputStyleId2.value = style.id
+    }
+  } catch (e) {
+    console.error('Failed to fetch directory settings:', e)
+  }
+}
+
+async function saveOutputStyleSetting() {
+  const projectPath = selectedProjectPath.value
+  if (!projectPath) return
+  isSavingConfigSettings.value = true
+  try {
+    const style = configOutputStyles.value.find(s => s.id === selectedOutputStyleId2.value)
+    if (style) configDirSettings.value.outputStyle = style.name
+    await $fetch('/api/projects/settings', {
+      method: 'PUT',
+      body: { path: projectPath, settings: configDirSettings.value }
+    })
+    toast.add({ title: 'Output style saved', color: 'success', duration: 2000 })
+  } catch (e: any) {
+    toast.add({ title: 'Failed to save settings', description: e.message, color: 'error' })
+  } finally {
+    isSavingConfigSettings.value = false
+  }
+}
+
 // Get display messages - either from live session or Claude Code history
 const displayMessages = computed<DisplayChatMessage[]>(() => {
   // Determine which session ID to use for live messages
@@ -301,17 +449,27 @@ const displayMessages = computed<DisplayChatMessage[]>(() => {
   // If viewing Claude Code history
   if (viewMode.value === 'history') {
     const historyMessages = convertClaudeCodeMessages(claudeCodeMessages.value)
-    
+
+    // If we have history messages and NOT continuing, just return history
+    if (historyMessages.length > 0 && !isContinuingHistory.value) {
+      return historyMessages
+    }
+
     // Always check for live messages if we have a session ID
     if (liveSessionId) {
       const liveMessages = sessionStore.getMessages(liveSessionId)
       // If we have live messages or streaming text, combine them
       if (liveMessages.length > 0 || streamingText.value) {
         const newMessages = convertToDisplayMessages(liveMessages, streamingText.value)
-        return [...historyMessages, ...newMessages]
+        
+        // Dedup by ID - history messages take priority
+        const historyIds = new Set(historyMessages.map(m => m.id))
+        const uniqueNewMessages = newMessages.filter(m => !historyIds.has(m.id))
+        
+        return [...historyMessages, ...uniqueNewMessages]
       }
     }
-    
+
     return historyMessages
   }
 
@@ -322,11 +480,6 @@ const displayMessages = computed<DisplayChatMessage[]>(() => {
 
   const messages = sessionStore.getMessages(liveSessionId)
   return convertToDisplayMessages(messages, streamingText.value)
-})
-
-// Fetch sessions on mount (no automatic WebSocket connection - connect lazily when sending)
-onMounted(async () => {
-  await fetchSessions()
 })
 
 // Watch for errors and show toast
@@ -342,6 +495,8 @@ watch(error, (newError) => {
 
 // Handle Claude Code project selection
 function handleClaudeCodeProjectSelected(payload: { projectName: string; projectDisplayName: string }) {
+  activeConfigPanel.value = null
+  isOnSettingsRoute.value = false
   urlProjectName.value = payload.projectName
   urlSessionId.value = null
   setCurrentSessionId(null) // Clear active session
@@ -395,6 +550,8 @@ function scrollToBottom(behavior: ScrollBehavior = 'auto'): Promise<void> {
 
 // Handle Claude Code history session selection
 async function handleClaudeCodeSessionSelected(payload: { projectName: string; sessionId: string; sessionSummary: string; projectDisplayName: string }) {
+  activeConfigPanel.value = null
+  isOnSettingsRoute.value = false
   viewMode.value = 'history'
   isLiveChat.value = false
   urlProjectName.value = payload.projectName
@@ -406,7 +563,7 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
   isInitialScroll.value = true // Set initial scroll flag
   isLoadingHistoryWithDelay.value = true // Show spinner before any awaits to avoid blank gap
 
-  // Find and set the session in shared state to sync metadata (like model)
+  // Finding and setting the session in shared state to sync metadata (like model)
   const session = history.sessions.value.find(s => s.id === payload.sessionId)
   if (session) {
     history.selectedSession.value = session
@@ -420,6 +577,9 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
       cwd: '',
     }
   }
+
+  // Clear any realtime messages for this session ID to prevent doubling with history
+  sessionStore.clearRealtime(payload.sessionId)
 
   // Update URL only if not already there (avoids redundant navigation when triggered by route watcher)
   const targetPath = `/cli/project/${encodeURIComponent(payload.projectName)}/session/${encodeURIComponent(payload.sessionId)}`
@@ -447,6 +607,8 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
 
 // Handle selection cleared (back to projects list)
 function handleSelectionCleared() {
+  activeConfigPanel.value = null
+  isOnSettingsRoute.value = false
   viewMode.value = 'live'
   isLiveChat.value = false
   urlProjectName.value = null
@@ -498,53 +660,62 @@ function handleNewChat(payload?: { workingDir?: string; projectDisplayName?: str
 }
 
 
+// Helper: find project by path and refresh its session list, with one retry for timing
+async function refreshProjectForNewSession(newId: string, workingDir: string) {
+  const normalizedDir = workingDir.replace(/\/$/, '')
+  let matchingProject = history.projects.value.find(p => p.path.replace(/\/$/, '') === normalizedDir)
+
+  if (!matchingProject) {
+    // Project may be brand new — refetch and try once more
+    await history.fetchProjects()
+    matchingProject = history.projects.value.find(p => p.path.replace(/\/$/, '') === normalizedDir)
+  }
+
+  if (!matchingProject) return
+
+  // Update sidebar state
+  urlProjectName.value = matchingProject.name
+  currentProjectDisplayName.value = matchingProject.displayName
+  history.selectedProject.value = matchingProject
+
+  // Refresh sessions list
+  await history.fetchSessions(matchingProject.name)
+  urlSessionId.value = newId
+
+  let newSession = history.sessions.value.find(s => s.id === newId)
+
+  if (!newSession) {
+    // JSONL may not be flushed yet — wait briefly and retry once
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    await history.fetchSessions(matchingProject.name)
+    newSession = history.sessions.value.find(s => s.id === newId)
+  }
+
+  if (newSession) {
+    currentSessionSummary.value = newSession.summary
+    history.selectedSession.value = newSession
+  }
+
+  // Update URL (replace so back button skips the empty new-chat state)
+  await navigateTo(
+    `/cli/project/${encodeURIComponent(matchingProject.name)}/session/${encodeURIComponent(newId)}`,
+    { replace: true }
+  )
+}
+
 // Watch for session created event from SDK
 watch(currentSessionId, async (newId, oldId) => {
-  if (newId && (!oldId || oldId.startsWith('new-session-'))) {
+  if (newId && !newId.startsWith('new-session-') && (!oldId || oldId.startsWith('new-session-'))) {
     console.log('[ChatV2] New session created, refreshing history:', newId)
-    
-    // Refresh the projects list first
-    await history.fetchProjects()
-    
-    // If we have a working directory, try to find the matching project
-    if (localWorkingDir.value) {
-      const projects = history.projects.value
-      // Normalize path for matching (remove trailing slash)
-      const normalizedDir = localWorkingDir.value.replace(/\/$/, '')
-      const matchingProject = projects.find(p => p.path.replace(/\/$/, '') === normalizedDir)
-      
-      if (matchingProject) {
-        // Switch view to sessions for this project in the sidebar
-        urlProjectName.value = matchingProject.name
-        currentProjectDisplayName.value = matchingProject.displayName
-        
-        // Update shared state for sidebar to know which project is selected
-        history.selectedProject.value = matchingProject
-        
-        // Refresh sessions list for this project to include the new one
-        await history.fetchSessions(matchingProject.name)
-        
-        // Mark this session as selected in history UI
-        urlSessionId.value = newId
-        
-        // Find the newly created session in the list to get its summary
-        const newSession = history.sessions.value.find(s => s.id === newId)
-        if (newSession) {
-          currentSessionSummary.value = newSession.summary
-          history.selectedSession.value = newSession
-        }
 
-        // Update URL to reflect the newly created session
-        // Use replace:true so back button skips the "new chat" empty state
-        await navigateTo(
-          `/cli/project/${encodeURIComponent(matchingProject.name)}/session/${encodeURIComponent(newId)}`,
-          { replace: true }
-        )
-      } else {
-        // If not matching any project yet, we could still refresh projects
-        // in case a new project folder was created by the SDK
-        await history.fetchProjects()
-      }
+    // Refresh projects so the list is up to date
+    await history.fetchProjects()
+
+    // Use the working dir reported by the server (most accurate) or fall back to local state
+    const effectiveWorkingDir = sessionCreatedWorkingDir.value || localWorkingDir.value
+
+    if (effectiveWorkingDir) {
+      await refreshProjectForNewSession(newId, effectiveWorkingDir)
     }
   }
 })
@@ -555,47 +726,98 @@ watch(
   () => ({
     projectName: route.params.projectName as string | undefined,
     sessionId: route.params.sessionId as string | undefined,
+    isSettings: route.path.endsWith('/settings'),
     projectsLoaded: history.projects.value.length > 0,
   }),
-  async ({ projectName, sessionId, projectsLoaded }) => {
+  async ({ projectName, sessionId, isSettings, projectsLoaded }) => {
     // No params — nothing to restore
     if (!projectName) return
 
     // Wait for projects to be loaded before resolving metadata
-    if (!projectsLoaded) return
+    if (!projectsLoaded) {
+      await history.fetchProjects()
+    }
 
-    const project = history.projects.value.find(p => p.name === projectName)
-    const projectDisplayName = project?.displayName || projectName
-
-    if (sessionId) {
-      // Full session URL: /cli/project/:projectName/session/:sessionId
-      // Guard: already showing this session
-      if (urlProjectName.value === projectName && urlSessionId.value === sessionId) return
-
-      // Fetch sessions for this project if not already loaded
-      if (history.selectedProject.value?.name !== projectName) {
-        history.selectedProject.value = project || null
-        await history.fetchSessions(projectName)
+    // 1. Resolve project - some URLs might use dash-encoded paths
+    let project = history.projects.value.find(p => p.name === projectName)
+    
+    // If project not found by name, try to resolve via API (fuzzy/path match)
+    if (!project) {
+      try {
+        const res = await $fetch<{ projectName: string | null }>('/api/projects/resolve', {
+          query: { name: projectName }
+        })
+        if (res.projectName && res.projectName !== projectName) {
+          // Redirect to the correct canonical URL - replacing only the project part of the path
+          const currentPath = route.path
+          const oldSegment = encodeURIComponent(projectName)
+          const newSegment = encodeURIComponent(res.projectName)
+          
+          if (currentPath.includes(oldSegment)) {
+            const newPath = currentPath.replace(oldSegment, newSegment)
+            return navigateTo(newPath, { replace: true })
+          } else if (currentPath.includes(projectName)) {
+             // Try unencoded version if encoded wasn't in path
+             const newPath = currentPath.replace(projectName, res.projectName)
+             return navigateTo(newPath, { replace: true })
+          }
+        }
+        // If it resolved to a known name, get the project object
+        if (res.projectName) {
+          project = history.projects.value.find(p => p.name === res.projectName)
+        }
+      } catch (e) {
+        console.error('[ChatV2] Failed to resolve project:', e)
       }
+    }
 
-      const session = history.sessions.value.find(s => s.id === sessionId)
-      const sessionSummary = session?.summary || ''
+    const resolvedProjectName = project?.name || projectName
+    const projectDisplayName = project?.displayName || resolvedProjectName
 
-      await handleClaudeCodeSessionSelected({
-        projectName,
-        sessionId,
-        sessionSummary,
-        projectDisplayName,
-      })
+    // Sync sidebar state
+    if (project && history.selectedProject.value?.name !== resolvedProjectName) {
+      history.selectedProject.value = project
+      // Load sessions for this project immediately
+      await history.fetchSessions(resolvedProjectName)
+    }
+
+    if (isSettings) {
+      // Settings URL: /cli/project/:projectName/settings
+      urlProjectName.value = resolvedProjectName
+      urlSessionId.value = null
+      currentProjectDisplayName.value = projectDisplayName
+      isOnSettingsRoute.value = true
+      activeConfigPanel.value = activeConfigPanel.value || null
     } else {
-      // Project-only URL: /cli/project/:projectName
-      // Guard: already showing this project with no session
-      if (urlProjectName.value === projectName && !urlSessionId.value) return
+      // Not on settings route
+      isOnSettingsRoute.value = false
+      activeConfigPanel.value = null
 
-      handleClaudeCodeProjectSelected({ projectName, projectDisplayName })
+      if (sessionId) {
+        // Full session URL: /cli/project/:projectName/session/:sessionId
+        // Guard: already showing this session (history mode) or actively live-chatting it (live mode)
+        if (urlProjectName.value === resolvedProjectName && urlSessionId.value === sessionId &&
+          (viewMode.value === 'history' || (viewMode.value === 'live' && currentSessionId.value === sessionId))) return
+
+        const session = history.sessions.value.find(s => s.id === sessionId)
+        const sessionSummary = session?.summary || ''
+
+        await handleClaudeCodeSessionSelected({
+          projectName: resolvedProjectName,
+          sessionId,
+          sessionSummary,
+          projectDisplayName,
+        })
+      } else {
+        // Project-only URL: /cli/project/:projectName
+        // Guard: already showing this project with no session
+        if (urlProjectName.value === resolvedProjectName && !urlSessionId.value && viewMode.value === 'live') return
+
+        handleClaudeCodeProjectSelected({ projectName: resolvedProjectName, projectDisplayName })
+      }
     }
   },
-  { immediate: true }
+  { immediate: true, flush: 'post' }
 )
 
 // Debounce timer for history refreshes during live chat
@@ -907,6 +1129,7 @@ function sendRegularMessage(text: string, images: string[]) {
       permissionMode: selectedPermissionMode.value,
       model: selectedModel.value,
       effort: effortLevel.value,
+      outputStyleId: selectedOutputStyleId.value,
       images,
     })
     return
@@ -918,6 +1141,7 @@ function sendRegularMessage(text: string, images: string[]) {
     permissionMode: selectedPermissionMode.value,
     model: selectedModel.value,
     effort: effortLevel.value,
+    outputStyleId: selectedOutputStyleId.value,
     images,
   })
 }
@@ -943,8 +1167,8 @@ async function handleSendMessage(images: string[] = []) {
 }
 
 // Handle permission response
-async function handlePermissionResponse(permissionId: string, decision: 'allow' | 'deny', remember = false) {
-  respondToPermission(permissionId, decision, remember)
+async function handlePermissionResponse(permissionId: string, decision: 'allow' | 'deny', remember = false, updatedInput?: any) {
+  respondToPermission(permissionId, decision, remember, updatedInput)
 }
 
 // Handle session renamed
@@ -1046,11 +1270,146 @@ function handleOpenFile(filePath: string) {
         @session-deleted="handleSessionDeleted"
         @project-renamed="handleProjectRenamed"
         @project-deleted="handleProjectDeleted"
+        @config-panel-selected="handleConfigPanelSelected"
+        @settings-toggled="handleSettingsToggled"
       />
     </div>
 
-    <!-- Right Panel - Chat Interface -->
+    <!-- Right Panel -->
     <div class="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+
+      <!-- ── Settings View ── -->
+      <template v-if="isOnSettingsRoute">
+
+        <!-- Settings Landing (no specific panel selected) -->
+        <template v-if="!activeConfigPanel">
+          <div class="shrink-0 border-b h-14 flex items-center gap-3 px-4" style="border-color: var(--border-subtle); background: var(--surface-base);">
+            <UIcon name="i-lucide-settings-2" class="size-4" style="color: var(--accent);" />
+            <h3 class="text-[14px] font-semibold" style="color: var(--text-primary);">Project Settings</h3>
+            <span class="text-[11px] font-mono" style="color: var(--text-tertiary);">
+              {{ currentProjectDisplayName || selectedProjectPath }}
+            </span>
+          </div>
+          <div class="flex-1 flex items-center justify-center">
+            <div class="text-center max-w-sm px-6">
+              <div class="size-16 mx-auto mb-5 rounded-2xl flex items-center justify-center" style="background: var(--surface-raised);">
+                <UIcon name="i-lucide-settings-2" class="size-8" style="color: var(--text-tertiary);" />
+              </div>
+              <h2 class="text-[17px] font-semibold mb-2" style="color: var(--text-primary);">Project Settings</h2>
+              <p class="text-[13px] leading-relaxed" style="color: var(--text-secondary);">
+                Choose a setting from the sidebar to configure this project.
+              </p>
+            </div>
+          </div>
+        </template>
+
+        <!-- Specific Config Panel -->
+        <template v-else>
+        <!-- Config Header -->
+        <div class="shrink-0 border-b h-14 flex items-center gap-3 px-4" style="border-color: var(--border-subtle); background: var(--surface-base);">
+          <button
+            class="p-1.5 rounded-lg hover-bg transition-all"
+            style="background: var(--surface-raised);"
+            @click="closeConfigPanel"
+          >
+            <UIcon name="i-lucide-arrow-left" class="size-4" style="color: var(--text-secondary);" />
+          </button>
+          <UIcon
+            :name="activeConfigPanel === 'claude-md' ? 'i-lucide-file-text' : 'i-lucide-palette'"
+            class="size-4"
+            style="color: var(--accent);"
+          />
+          <h3 class="text-[14px] font-semibold" style="color: var(--text-primary);">
+            {{ activeConfigPanel === 'claude-md' ? 'CLAUDE.md' : 'Output Style' }}
+          </h3>
+          <span class="text-[11px] font-mono" style="color: var(--text-tertiary);">
+            {{ currentProjectDisplayName || selectedProjectPath }}
+          </span>
+        </div>
+
+        <!-- CLAUDE.md Panel -->
+        <div v-if="activeConfigPanel === 'claude-md'" class="flex-1 flex flex-col min-h-0 min-w-0">
+          <!-- Loading -->
+          <div v-if="isLoadingClaudeMd" class="flex-1 flex items-center justify-center">
+            <UIcon name="i-lucide-loader-2" class="size-6 animate-spin" style="color: var(--text-secondary);" />
+          </div>
+
+          <!-- InstructionEditor fills the panel -->
+          <template v-else>
+            <div class="shrink-0 flex items-center justify-between px-4 py-2 border-b" style="border-color: var(--border-subtle);">
+              <p class="text-[12px]" style="color: var(--text-secondary);">
+                Project instructions that Claude Code reads automatically.
+              </p>
+              <button
+                class="px-4 py-1.5 rounded-lg text-[12px] font-semibold transition-all flex items-center gap-2"
+                :style="{ background: 'var(--accent)', color: 'white', opacity: isSavingClaudeMd ? 0.7 : 1 }"
+                :disabled="isSavingClaudeMd"
+                @click="saveClaudeMd"
+              >
+                <UIcon v-if="isSavingClaudeMd" name="i-lucide-loader-2" class="size-3.5 animate-spin" />
+                <UIcon v-else name="i-lucide-save" class="size-3.5" />
+                {{ isSavingClaudeMd ? 'Saving...' : 'Save' }}
+              </button>
+            </div>
+            <InstructionEditor
+              v-model="claudeMdDraft"
+              class="flex-1 min-h-0"
+              agent-name="CLAUDE.md"
+              :agent-description="currentProjectDisplayName || 'Project instructions'"
+              placeholder="# CLAUDE.md&#10;&#10;Write project instructions here..."
+            />
+          </template>
+        </div>
+
+        <!-- Output Style Panel -->
+        <div v-else-if="activeConfigPanel === 'output-style'" class="flex-1 overflow-y-auto">
+          <div class="max-w-3xl mx-auto px-6 py-8 space-y-6">
+            <div class="flex items-center justify-between">
+              <p class="text-[12px]" style="color: var(--text-secondary);">
+                Default output style for new sessions in this project. Saved to <code class="text-[11px] px-1 py-0.5 rounded" style="background: var(--surface-raised);">.claude/settings.local.json</code>
+              </p>
+              <button
+                class="px-4 py-2 rounded-xl text-[12px] font-semibold transition-all flex items-center gap-2"
+                :style="{ background: 'var(--accent)', color: 'white', opacity: isSavingConfigSettings ? 0.7 : 1 }"
+                :disabled="isSavingConfigSettings"
+                @click="saveOutputStyleSetting"
+              >
+                <UIcon v-if="isSavingConfigSettings" name="i-lucide-loader-2" class="size-3.5 animate-spin" />
+                <UIcon v-else name="i-lucide-save" class="size-3.5" />
+                {{ isSavingConfigSettings ? 'Saving...' : 'Save' }}
+              </button>
+            </div>
+
+            <div class="grid gap-3">
+              <button
+                v-for="style in configOutputStyles"
+                :key="style.id"
+                class="w-full flex items-start gap-4 p-4 rounded-xl text-left transition-all border"
+                :style="{
+                  background: selectedOutputStyleId2 === style.id ? 'var(--accent-muted)' : 'var(--surface-raised)',
+                  borderColor: selectedOutputStyleId2 === style.id ? 'var(--accent)' : 'var(--border-subtle)',
+                }"
+                @click="selectedOutputStyleId2 = style.id"
+              >
+                <div class="size-10 rounded-xl flex items-center justify-center shrink-0" :style="{ background: selectedOutputStyleId2 === style.id ? 'var(--accent)' : 'var(--surface-sunken)' }">
+                  <UIcon name="i-lucide-palette" class="size-5" :style="{ color: selectedOutputStyleId2 === style.id ? 'white' : 'var(--text-tertiary)' }" />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[13px] font-semibold" style="color: var(--text-primary);">{{ style.name }}</span>
+                    <UIcon v-if="selectedOutputStyleId2 === style.id" name="i-lucide-check" class="size-4" style="color: var(--accent);" />
+                  </div>
+                  <p class="text-[12px] mt-0.5" style="color: var(--text-secondary);">{{ style.description }}</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+        </template>
+      </template>
+
+      <!-- ── Chat Interface (default view) ── -->
+      <template v-else>
       <!-- Header - Fixed height for consistent alignment -->
       <div
         :key="urlSessionId || 'live'"
@@ -1068,14 +1427,16 @@ function handleOpenFile(filePath: string) {
                 <span v-else>{{ currentSessionSummary || 'Session' }}</span>
               </div>
               <!-- Folder Name -->
-              <div
+              <NuxtLink
                 v-if="currentProjectDisplayName || (isLoadingHistoryWithDelay && !isLoadingMore)"
-                class="text-[9px] md:text-[10px] font-mono leading-tight mt-0.5 text-ellipsis overflow-hidden whitespace-nowrap"
+                :to="urlProjectName ? `/cli/project/${encodeURIComponent(urlProjectName)}` : '/project-artifacts'"
+                class="text-[9px] md:text-[10px] font-mono leading-tight mt-0.5 text-ellipsis overflow-hidden whitespace-nowrap hover:text-accent transition-colors"
                 style="color: var(--text-tertiary);"
+                @click="urlSessionId = null; viewMode = 'live'"
               >
-                <span v-if="isLoadingHistoryWithDelay && !isLoadingMore" class="animate-pulse opacity-50">Loading project...</span>
-                <span v-else>{{ currentProjectDisplayName }}</span>
-              </div>
+                <span v-if="isLoadingHistoryWithDelay && !isLoadingMore" class="animate-pulse opacity-50">Loading session...</span>
+                <span v-else>{{ currentProjectDisplayName || 'Artifacts' }}</span>
+              </NuxtLink>
             </div>
           </template>
 
@@ -1111,15 +1472,16 @@ function handleOpenFile(filePath: string) {
               </div>
 
               <!-- Project/Folder indicator in live mode -->
-              <div
+              <NuxtLink
                 v-if="localWorkingDir"
-                class="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium min-w-0"
+                :to="urlProjectName ? `/cli/project/${encodeURIComponent(urlProjectName)}` : '/project-artifacts'"
+                class="flex items-center gap-1.5 px-2 py-1 rounded text-[11px] font-medium min-w-0 hover-bg transition-all"
                 style="background: var(--surface-raised); color: var(--text-secondary);"
                 :title="localWorkingDir"
               >
                 <UIcon :name="currentProjectDisplayName ? 'i-lucide-folder-root' : 'i-lucide-folder'" class="size-3 shrink-0" />
                 <span class="truncate">{{ currentProjectDisplayName || localWorkingDir.split('/').filter(Boolean).pop() || localWorkingDir }}</span>
-              </div>
+              </NuxtLink>
             </div>
           </template>
         </div>
@@ -1388,6 +1750,7 @@ function handleOpenFile(filePath: string) {
         />
       </div>
 
+      </template>
     </div>
   </div>
 
