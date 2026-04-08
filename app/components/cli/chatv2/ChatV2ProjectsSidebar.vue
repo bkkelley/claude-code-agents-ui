@@ -2,6 +2,17 @@
 import { useClaudeCodeHistory } from '~/composables/useClaudeCodeHistory'
 import { formatRelativeTime } from '~/utils/messageFormatting'
 
+// Tick every 60s so isActiveSession stays live without a server round-trip
+const now = ref(Date.now())
+let nowTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => { nowTimer = setInterval(() => { now.value = Date.now() }, 60_000) })
+onUnmounted(() => { if (nowTimer) clearInterval(nowTimer) })
+
+function isSessionLive(lastActivity: string): boolean {
+  const diffMs = now.value - new Date(lastActivity).getTime()
+  return diffMs < 10 * 60 * 1000
+}
+
 const emit = defineEmits<{
   (e: 'sessionSelected', payload: { projectName: string; sessionId: string; sessionSummary: string; projectDisplayName: string }): void
   (e: 'projectSelected', payload: { projectName: string; projectDisplayName: string }): void
@@ -651,15 +662,9 @@ function confirmDelete() {
                   <!-- Normal title display -->
                   <div
                     v-else
-                    class="text-[12px] font-medium truncate mb-1 flex items-center gap-2"
+                    class="text-[12px] font-medium truncate mb-1"
                     style="color: var(--text-primary);"
                   >
-                    <div 
-                      v-if="session.isActive" 
-                      class="size-1.5 rounded-full shrink-0 animate-pulse" 
-                      style="background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);"
-                      title="Session is active"
-                    />
                     <span class="truncate">{{ session.summary || 'Session' }}</span>
                   </div>
                   <div class="flex flex-wrap items-center gap-2 text-[10px]" style="color: var(--text-tertiary);">
@@ -670,22 +675,36 @@ function confirmDelete() {
                 <!-- Action icons (visible on hover, hidden when editing) -->
                 <div
                   v-if="editingSessionId !== session.id"
-                  class="flex items-center gap-0.5 opacity-0 group-hover/session:opacity-100 transition-opacity shrink-0"
+                  class="relative flex items-center shrink-0"
                 >
-                  <button
-                    class="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-                    title="Rename"
-                    @click="startEditing(session, $event)"
+                  <!-- Active indicator fades out on hover; buttons fade in — same position -->
+                  <div
+                    v-if="isSessionLive(session.lastActivity)"
+                    class="absolute inset-0 flex items-center justify-center group-hover/session:opacity-0 transition-opacity pointer-events-none"
+                    title="Session is active"
                   >
-                    <UIcon name="i-lucide-pencil" class="size-3" style="color: var(--text-tertiary);" />
-                  </button>
-                  <button
-                    class="p-1 rounded hover:bg-red-500/10 transition-colors"
-                    title="Delete"
-                    @click="openDeleteModal(session, $event)"
-                  >
-                    <UIcon name="i-lucide-trash-2" class="size-3" style="color: var(--error, #ef4444);" />
-                  </button>
+                    <div
+                      class="size-1.5 rounded-full animate-pulse"
+                      style="background: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);"
+                    />
+                  </div>
+                  <!-- Edit/delete buttons: shown on hover -->
+                  <div class="flex items-center gap-0.5 opacity-0 group-hover/session:opacity-100 transition-opacity">
+                    <button
+                      class="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                      title="Rename"
+                      @click="startEditing(session, $event)"
+                    >
+                      <UIcon name="i-lucide-pencil" class="size-3" style="color: var(--text-tertiary);" />
+                    </button>
+                    <button
+                      class="p-1 rounded hover:bg-red-500/10 transition-colors"
+                      title="Delete"
+                      @click="openDeleteModal(session, $event)"
+                    >
+                      <UIcon name="i-lucide-trash-2" class="size-3" style="color: var(--error, #ef4444);" />
+                    </button>
+                  </div>
                 </div>
               </div>
               <div v-if="session.isGrouped" class="mt-1">

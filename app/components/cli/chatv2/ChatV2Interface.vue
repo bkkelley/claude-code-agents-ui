@@ -45,6 +45,7 @@ const {
   isLoadingMessages: isLoadingClaudeCodeMessages,
   messagesHasMore: claudeCodeMessagesHasMore,
   fetchMessages: fetchClaudeCodeMessages,
+  silentSyncMessages,
   renameSession,
   deleteSession
 } = history
@@ -251,6 +252,42 @@ const isInitialScroll = ref(false)
 // URL state for history sessions
 const urlProjectName = ref<string | null>(null)
 const urlSessionId = ref<string | null>(null)
+
+// Live sync: poll messages every 3s when viewing a history session from the terminal
+const syncTimer = ref<ReturnType<typeof setInterval> | null>(null)
+
+function startSessionSync() {
+  stopSessionSync()
+  syncTimer.value = setInterval(async () => {
+    if (viewMode.value !== 'history' || !urlSessionId.value || !urlProjectName.value) return
+    if (isStreaming.value) return
+    const prevCount = claudeCodeMessages.value.length
+    await silentSyncMessages(urlProjectName.value, urlSessionId.value)
+    if (claudeCodeMessages.value.length > prevCount) {
+      const session = history.sessions.value.find(s => s.id === urlSessionId.value)
+      if (session) session.lastActivity = new Date().toISOString()
+    }
+  }, 3000)
+}
+
+function stopSessionSync() {
+  if (syncTimer.value) {
+    clearInterval(syncTimer.value)
+    syncTimer.value = null
+  }
+}
+
+watch([() => urlSessionId.value, () => viewMode.value], ([sessionId, mode]) => {
+  if (sessionId && mode === 'history') {
+    startSessionSync()
+  } else {
+    stopSessionSync()
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  stopSessionSync()
+})
 
 // Session info for header display
 const currentSessionSummary = ref<string>('')

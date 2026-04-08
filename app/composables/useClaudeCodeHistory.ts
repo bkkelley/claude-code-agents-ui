@@ -19,7 +19,7 @@ interface ClaudeCodeSession {
   model?: string
   isGrouped?: boolean
   groupSize?: number
-  isActive?: boolean
+  isActiveSession?: boolean
 }
 
 interface ClaudeCodeMessage {
@@ -278,6 +278,36 @@ export function useClaudeCodeHistory() {
   }
 
   /**
+   * Silently poll for new messages without triggering loading state or replacing existing messages.
+   * Only appends messages that are genuinely new (by total count). Safe to call on an interval.
+   */
+  async function silentSyncMessages(projectName: string, sessionId: string) {
+    try {
+      const response = await $fetch<{
+        messages: ClaudeCodeMessage[]
+        total: number
+        hasMore: boolean
+      }>(`/api/v2/claude-code/projects/${encodeURIComponent(projectName)}/sessions/${encodeURIComponent(sessionId)}/messages`, {
+        query: { limit: 100, offset: 0 }
+      })
+
+      // Only update if there are genuinely new messages
+      if (response.total <= messagesTotal.value) return
+
+      const existingIds = new Set(messages.value.map(m => m.uuid))
+      const newMessages = response.messages.filter(m => !m.uuid || !existingIds.has(m.uuid))
+      if (newMessages.length === 0) return
+
+      messages.value = [...messages.value, ...newMessages].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      )
+      messagesTotal.value = response.total
+    } catch {
+      // Swallow errors — this is a background sync
+    }
+  }
+
+  /**
    * Select a project and load its sessions
    */
   async function selectProject(project: ClaudeCodeProject | null) {
@@ -359,6 +389,7 @@ export function useClaudeCodeHistory() {
     fetchProjects,
     fetchSessions,
     fetchMessages,
+    silentSyncMessages,
     renameProject,
     deleteProject,
     renameSession,
