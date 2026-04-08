@@ -52,12 +52,12 @@ It looks like a studio — but under the hood it has relationship graphs, real-t
 <table>
   <tr>
     <td align="center"><strong>Works<br/>with</strong></td>
-    <td align="center"><sub>Claude Code</sub></td>
-    <td align="center"><sub>Anthropic SDK</sub></td>
-    <td align="center"><sub>Bun</sub></td>
-    <td align="center"><sub>Nuxt 3</sub></td>
-    <td align="center"><sub>Tailwind CSS</sub></td>
-    <td align="center"><sub>Xterm.js</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/anthropic.svg" width="32" alt="Claude Code" /><br/><sub>Claude Code</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/anthropic.svg" width="32" alt="Anthropic SDK" /><br/><sub>Anthropic SDK</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/bun.svg" width="32" alt="Bun" /><br/><sub>Bun</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/nuxt.svg" width="32" alt="Nuxt 3" /><br/><sub>Nuxt 3</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/tailwindcss.svg" width="32" alt="Tailwind CSS" /><br/><sub>Tailwind CSS</sub></td>
+    <td align="center"><img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/gnometerminal.svg" width="32" alt="Bash" /><br/><sub>Bash</sub></td>
   </tr>
 </table>
 
