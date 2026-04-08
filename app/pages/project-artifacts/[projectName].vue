@@ -25,19 +25,6 @@ useHead({
       </template>
       <template #right>
         <div class="flex items-center gap-3">
-          <button
-            class="p-2 rounded-lg transition-all hover-bg flex items-center justify-center shrink-0"
-            style="background: var(--surface-raised); color: var(--text-secondary);"
-            title="Refresh"
-            :disabled="pending"
-            @click="refresh()"
-          >
-            <UIcon 
-              name="i-lucide-refresh-cw" 
-              class="size-4" 
-              :class="{ 'animate-spin': pending }"
-            />
-          </button>
           <NuxtLink
             :to="`/cli/project/${encodeURIComponent(projectName)}`"
             class="px-4 py-2 rounded-xl text-[13px] font-semibold transition-all flex items-center gap-2"
@@ -86,10 +73,11 @@ useHead({
           </div>
 
           <div v-if="data.skills.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div
+            <NuxtLink
               v-for="skill in data.skills"
               :key="skill.slug"
-              class="rounded-xl p-4 transition-all duration-200"
+              :to="`/skills/${skill.slug}?workingDir=${encodeURIComponent(data.project.path)}`"
+              class="rounded-xl p-4 transition-all duration-200 block cursor-pointer hover-surface"
               style="background: var(--surface-raised); border: 1px solid var(--border-subtle);"
             >
               <div class="flex items-center gap-3 mb-3">
@@ -102,9 +90,9 @@ useHead({
               <div class="mt-4 pt-3 flex" style="border-top: 1px solid var(--border-subtle);">
                 <span class="text-[10px] font-mono" style="color: var(--text-tertiary);">{{ skill.filePath.split('/').pop() }}</span>
               </div>
-            </div>
+            </NuxtLink>
           </div>
-          
+
           <div v-else class="text-center py-10 rounded-xl border border-dashed" style="border-color: var(--border-subtle);">
             <UIcon name="i-lucide-sparkles" class="size-8 mx-auto mb-3 opacity-20" style="color: var(--text-primary);" />
             <p class="text-[14px]" style="color: var(--text-secondary);">No local skills found in this project.</p>
@@ -127,10 +115,11 @@ useHead({
           </div>
 
           <div v-if="data.agents.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div
+            <NuxtLink
               v-for="agent in data.agents"
               :key="agent.slug"
-              class="rounded-xl p-4 transition-all duration-200"
+              :to="`/agents/${agent.slug}?workingDir=${encodeURIComponent(data.project.path)}`"
+              class="rounded-xl p-4 transition-all duration-200 block cursor-pointer hover-surface"
               style="background: var(--surface-raised); border: 1px solid var(--border-subtle);"
             >
               <div class="flex items-center gap-3 mb-3">
@@ -143,7 +132,7 @@ useHead({
               <div class="mt-4 pt-3 flex" style="border-top: 1px solid var(--border-subtle);">
                 <span class="text-[10px] font-mono" style="color: var(--text-tertiary);">{{ agent.filePath.split('/').pop() }}</span>
               </div>
-            </div>
+            </NuxtLink>
           </div>
 
           <div v-else class="text-center py-10 rounded-xl border border-dashed" style="border-color: var(--border-subtle);">

@@ -13,6 +13,7 @@ const { reveal } = useReveal()
 const { clearChat: clearStudioChat, toolCalls, isStreaming: studioStreaming } = useStudioChat()
 
 const slug = route.params.slug as string
+const queryWorkingDir = route.query.workingDir as string | undefined
 const skill = ref<Skill | null>(null)
 const isImported = computed(() => skill.value?.source === 'github')
 const saving = ref(false)
@@ -40,7 +41,8 @@ onMounted(async () => {
   try {
     // Try to find skill in local state to get filePath
     const localSkill = skills.value.find(s => s.slug === slug)
-    const query = workingDir.value ? { workingDir: workingDir.value } : {}
+    const effectiveWorkingDir = queryWorkingDir || workingDir.value
+    const query = effectiveWorkingDir ? { workingDir: effectiveWorkingDir } : {}
     
     if (localSkill?.filePath) {
       skill.value = await $fetch<Skill>(`/api/skills/${encodeURIComponent(slug)}`, {

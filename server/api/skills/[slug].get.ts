@@ -30,6 +30,31 @@ export default defineEventHandler(async (event) => {
   // Load all agents to find preloading associations
   const preloadingAgents = await getPreloadingAgents(slug)
 
+  // 0. Check project-local skills when workingDir is provided
+  if (workingDir) {
+    const projectSkillDirs = [
+      join(workingDir, '.claude', 'skills', slug),
+      join(workingDir, 'skills', slug),
+    ]
+    for (const dir of projectSkillDirs) {
+      const skillPath = join(dir, 'SKILL.md')
+      if (existsSync(skillPath)) {
+        const raw = await readFile(skillPath, 'utf-8')
+        const { frontmatter, body } = parseFrontmatter<SkillFrontmatter>(raw)
+        const mcpServer = await getMcpServerForSkill(slug, frontmatter, body, workingDir)
+        return {
+          slug,
+          frontmatter: { name: slug, ...frontmatter },
+          body,
+          filePath: skillPath,
+          source: 'local' as const,
+          agents: preloadingAgents,
+          mcpServer,
+        }
+      }
+    }
+  }
+
   // 1. Check standalone skills
   const standaloneDir = resolveClaudePath('skills', slug)
   let standalonePath = join(standaloneDir, 'SKILL.md')

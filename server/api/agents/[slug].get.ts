@@ -7,7 +7,20 @@ import type { AgentFrontmatter } from '~/types'
 
 export default defineEventHandler(async (event) => {
   const slug = getRouterParam(event, 'slug')!
-  const filePath = resolveAgentFilePath(slug)
+  const { workingDir } = getQuery(event) as { workingDir?: string }
+
+  // Check project-local agent first when workingDir is provided
+  let filePath = resolveAgentFilePath(slug)
+  if (workingDir && !existsSync(filePath)) {
+    const { join } = await import('node:path')
+    const projectPaths = [
+      join(workingDir, '.claude', 'agents', `${slug}.md`),
+      join(workingDir, 'agents', `${slug}.md`),
+    ]
+    for (const p of projectPaths) {
+      if (existsSync(p)) { filePath = p; break }
+    }
+  }
 
   if (!existsSync(filePath)) {
     throw createError({ statusCode: 404, message: `Agent not found: ${slug}` })

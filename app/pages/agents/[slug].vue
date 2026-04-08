@@ -5,6 +5,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const slug = route.params.slug as string
+const queryWorkingDir = route.query.workingDir as string | undefined
 
 const { fetchOne, remove } = useAgents()
 const { clearChat: clearStudioChat, toolCalls, isStreaming: studioStreaming } = useStudioChat()
@@ -48,7 +49,7 @@ function restoreDraft() {
 async function loadAgent() {
   loading.value = true
   try {
-    const agent = await fetchOne(slug) as any
+    const agent = await fetchOne(slug, queryWorkingDir ? { workingDir: queryWorkingDir } : {}) as any
     const fm = agent.frontmatter as AgentFrontmatter
     
     // Ensure memory and tools are initialized
