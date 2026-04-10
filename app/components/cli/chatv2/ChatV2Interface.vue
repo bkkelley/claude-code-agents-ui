@@ -608,8 +608,16 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
 
   // Finding and setting the session in shared state to sync metadata (like model)
   const session = history.sessions.value.find(s => s.id === payload.sessionId)
+  const project = history.projects.value.find(p => p.name === payload.projectName)
+
   if (session) {
     history.selectedSession.value = session
+    // Sync working directory to the session's recorded cwd
+    if (session.cwd) {
+      localWorkingDir.value = session.cwd
+    } else if (project) {
+      localWorkingDir.value = project.path
+    }
   } else {
     // Fallback: create a skeleton session if not in the current list
     history.selectedSession.value = {
@@ -617,7 +625,10 @@ async function handleClaudeCodeSessionSelected(payload: { projectName: string; s
       summary: payload.sessionSummary,
       lastActivity: new Date().toISOString(),
       messageCount: 0,
-      cwd: '',
+      cwd: project?.path || '',
+    }
+    if (project) {
+      localWorkingDir.value = project.path
     }
   }
 
