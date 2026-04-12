@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 
 const route = useRoute()
 const router = useRouter()
-const { fetchServer, addServer, removeServer } = useMCP()
+const { fetchServer, addServer, removeServer, fetchCapabilities } = useMCP()
 const { clearChat: clearStudioChat, toolCalls, isStreaming: studioStreaming } = useStudioChat()
 const toast = useToast()
 
@@ -13,6 +13,27 @@ const scope = route.query.scope as 'global' | 'project'
 const loading = ref(true)
 const saving = ref(false)
 const showDeleteConfirm = ref(false)
+
+const capabilities = ref<{
+  tools: any[]
+  resources: any[]
+  prompts: any[]
+} | null>(null)
+const loadingCapabilities = ref(false)
+const isToolsCollapsed = ref(false)
+const isResourcesCollapsed = ref(true)
+const isPromptsCollapsed = ref(true)
+
+async function loadCapabilities() {
+  loadingCapabilities.value = true
+  try {
+    capabilities.value = await fetchCapabilities(name, scope)
+  } catch (e) {
+    // Error handled by composable
+  } finally {
+    loadingCapabilities.value = false
+  }
+}
 
 const form = ref({
   name: '',
@@ -56,6 +77,7 @@ onMounted(async () => {
     loading.value = false
   }
   clearStudioChat()
+  loadCapabilities()
 })
 
 function addEnvRow() { form.value.envPairs.push({ key: '', value: '' }) }
@@ -226,8 +248,15 @@ useUnsavedChanges(isDirty)
                     <span class="text-[13px] group-hover:opacity-100 transition-opacity" :class="form.transport === 'stdio' ? 'opacity-100 font-medium' : 'opacity-60'">stdio (Local)</span>
                   </label>
                   <label class="flex items-center gap-2 cursor-pointer group">
+                    <input v-model="form.transport" type="radio" value="http" class="accent-accent" />
+                    <span class="text-[13px] group-hover:opacity-100 transition-opacity" :class="form.transport === 'http' ? 'opacity-100 font-medium' : 'opacity-60'">http (Streamable)</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer group">
                     <input v-model="form.transport" type="radio" value="sse" class="accent-accent" />
-                    <span class="text-[13px] group-hover:opacity-100 transition-opacity" :class="form.transport === 'sse' ? 'opacity-100 font-medium' : 'opacity-60'">sse (Remote)</span>
+                    <div class="flex items-center gap-1.5" :class="form.transport === 'sse' ? 'opacity-100' : 'opacity-60'">
+                      <span class="text-[13px] group-hover:opacity-100 transition-opacity" :class="form.transport === 'sse' ? 'font-medium' : ''">sse (Classic)</span>
+                      <span class="text-[9px] font-mono px-1 py-0.5 rounded bg-error/10 text-error uppercase leading-none border border-error/20">Deprecated</span>
+                    </div>
                   </label>
                 </div>
               </div>
@@ -245,7 +274,7 @@ useUnsavedChanges(isDirty)
                 </div>
               </template>
 
-              <template v-else>
+              <template v-else-if="form.transport === 'sse' || form.transport === 'http'">
                 <div class="space-y-1.5">
                   <label class="text-[11px] font-medium" style="color: var(--text-tertiary);">URL</label>
                   <input v-model="form.url" type="text" class="field-input w-full font-mono text-[13px]" placeholder="https://example.com/sse" />
@@ -298,6 +327,135 @@ useUnsavedChanges(isDirty)
                   <p class="text-[12px]">No custom headers configured</p>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <!-- Capabilities -->
+          <section class="space-y-6 pt-8 border-t" style="border-color: var(--border-subtle);">
+            <div class="flex items-center justify-between">
+              <div class="space-y-1">
+                <h3 class="text-[13px] font-semibold tracking-wider uppercase opacity-50" style="color: var(--text-primary);">Capabilities</h3>
+                <p class="text-[11px] opacity-40">Discovered tools, resources, and prompts from this server.</p>
+              </div>
+              <UButton
+                icon="i-lucide-refresh-cw"
+                size="xs"
+                variant="ghost"
+                :loading="loadingCapabilities"
+                @click="loadCapabilities"
+                label="Refresh"
+              />
+            </div>
+
+            <div v-if="loadingCapabilities" class="py-12 flex flex-col items-center justify-center gap-3">
+              <UIcon name="i-lucide-loader-2" class="size-6 animate-spin" style="color: var(--accent);" />
+              <span class="text-[12px] opacity-60">Connecting to server...</span>
+            </div>
+
+            <div v-else-if="capabilities" class="space-y-8">
+              <!-- Tools -->
+              <div class="space-y-4">
+                <button 
+                  class="flex items-center justify-between w-full px-1 group/header"
+                  @click="isToolsCollapsed = !isToolsCollapsed"
+                >
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-wrench" class="size-4 opacity-60 text-accent" />
+                    <span class="text-[13px] font-semibold">Tools</span>
+                    <span class="text-[11px] font-mono px-1.5 py-px rounded-full" style="background: var(--badge-subtle-bg); color: var(--text-tertiary);">{{ capabilities.tools.length }}</span>
+                  </div>
+                  <UIcon 
+                    :name="isToolsCollapsed ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" 
+                    class="size-4 opacity-40 group-hover/header:opacity-100 transition-all" 
+                  />
+                </button>
+                <div v-if="!isToolsCollapsed">
+                  <div v-if="capabilities.tools.length" class="grid gap-3">
+                    <div v-for="tool in (capabilities.tools as any[])" :key="tool.name" class="p-4 rounded-xl border group hover:border-accent/40 transition-all" style="background: var(--surface-base); border-color: var(--border-subtle);">
+                      <div class="flex items-center justify-between mb-1.5">
+                        <div class="font-mono text-[13px] font-bold text-accent">{{ tool.name }}</div>
+                        <UIcon name="i-lucide-info" class="size-3.5 opacity-0 group-hover:opacity-40 transition-opacity" />
+                      </div>
+                      <div class="text-[12px] leading-relaxed" style="color: var(--text-secondary);">{{ tool.description }}</div>
+                      <div v-if="tool.inputSchema" class="mt-3 pt-3 border-t border-dashed" style="border-color: var(--border-subtle);">
+                        <div class="text-[10px] uppercase tracking-wider font-semibold opacity-40 mb-2">Input Schema</div>
+                        <pre class="text-[10px] p-2 rounded-lg font-mono overflow-x-auto" style="background: var(--surface-raised); color: var(--text-tertiary);">{{ JSON.stringify(tool.inputSchema.properties || {}, null, 2) }}</pre>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="py-8 border border-dashed rounded-xl flex flex-col items-center justify-center opacity-40" style="border-color: var(--border-subtle);">
+                    <p class="text-[12px]">No tools discovered</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Resources -->
+              <div class="space-y-4">
+                <button 
+                  class="flex items-center justify-between w-full px-1 group/header"
+                  @click="isResourcesCollapsed = !isResourcesCollapsed"
+                >
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-database" class="size-4 opacity-60 text-success" />
+                    <span class="text-[13px] font-semibold">Resources</span>
+                    <span class="text-[11px] font-mono px-1.5 py-px rounded-full" style="background: var(--badge-subtle-bg); color: var(--text-tertiary);">{{ capabilities.resources.length }}</span>
+                  </div>
+                  <UIcon 
+                    :name="isResourcesCollapsed ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" 
+                    class="size-4 opacity-40 group-hover/header:opacity-100 transition-all" 
+                  />
+                </button>
+                <div v-if="!isResourcesCollapsed">
+                  <div v-if="capabilities.resources.length" class="grid gap-3">
+                    <div v-for="resource in (capabilities.resources as any[])" :key="resource.uri" class="p-4 rounded-xl border hover:border-success/40 transition-all" style="background: var(--surface-base); border-color: var(--border-subtle);">
+                      <div class="font-mono text-[12px] font-bold text-success mb-1">{{ resource.name }}</div>
+                      <div class="text-[11px] opacity-60 font-mono mb-2 truncate">{{ resource.uri }}</div>
+                      <div class="text-[12px]" style="color: var(--text-secondary);">{{ resource.description }}</div>
+                    </div>
+                  </div>
+                  <div v-else class="py-8 border border-dashed rounded-xl flex flex-col items-center justify-center opacity-40" style="border-color: var(--border-subtle);">
+                    <p class="text-[12px]">No resources discovered</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Prompts -->
+              <div class="space-y-4">
+                <button 
+                  class="flex items-center justify-between w-full px-1 group/header"
+                  @click="isPromptsCollapsed = !isPromptsCollapsed"
+                >
+                  <div class="flex items-center gap-2">
+                    <UIcon name="i-lucide-terminal" class="size-4 opacity-60 text-primary" />
+                    <span class="text-[13px] font-semibold">Prompts</span>
+                    <span class="text-[11px] font-mono px-1.5 py-px rounded-full" style="background: var(--badge-subtle-bg); color: var(--text-tertiary);">{{ capabilities.prompts.length }}</span>
+                  </div>
+                  <UIcon 
+                    :name="isPromptsCollapsed ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" 
+                    class="size-4 opacity-40 group-hover/header:opacity-100 transition-all" 
+                  />
+                </button>
+                <div v-if="!isPromptsCollapsed">
+                  <div v-if="capabilities.prompts.length" class="grid gap-3">
+                    <div v-for="prompt in (capabilities.prompts as any[])" :key="prompt.name" class="p-4 rounded-xl border hover:border-primary/40 transition-all" style="background: var(--surface-base); border-color: var(--border-subtle);">
+                      <div class="font-mono text-[12px] font-bold text-primary mb-1">{{ prompt.name }}</div>
+                      <div class="text-[12px]" style="color: var(--text-secondary);">{{ prompt.description }}</div>
+                      <div v-if="prompt.arguments?.length" class="mt-3 flex flex-wrap gap-2">
+                        <span v-for="arg in prompt.arguments" :key="arg.name" class="text-[10px] font-mono px-1.5 py-px rounded-md border" :title="arg.description" style="background: var(--surface-raised); border-color: var(--border-subtle);">
+                          {{ arg.name }}{{ arg.required ? '*' : '' }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="py-8 border border-dashed rounded-xl flex flex-col items-center justify-center opacity-40" style="border-color: var(--border-subtle);">
+                    <p class="text-[12px]">No prompts discovered</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="py-12 border border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 opacity-40" style="border-color: var(--border-subtle);">
+              <UIcon name="i-lucide-alert-circle" class="size-6" />
+              <p class="text-[12px] text-center max-w-[200px]">Failed to connect to server or no capabilities discovered.</p>
             </div>
           </section>
         </div>

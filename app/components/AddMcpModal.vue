@@ -4,7 +4,7 @@ import { ref } from 'vue'
 const emit = defineEmits<{ (e: 'close'): void, (e: 'add', payload: any): void }>()
 
 const name = ref('')
-const transport = ref<'stdio' | 'sse'>('stdio')
+const transport = ref<'stdio' | 'sse' | 'http'>('stdio')
 const command = ref('')
 const argsString = ref('')
 const url = ref('')
@@ -23,7 +23,7 @@ function removeHeaderRow(idx: number) { headerPairs.value.splice(idx, 1) }
 function submit() {
   if (!name.value.trim()) return
   if (transport.value === 'stdio' && !command.value.trim()) return
-  if (transport.value === 'sse' && !url.value.trim()) return
+  if ((transport.value === 'sse' || transport.value === 'http') && !url.value.trim()) return
 
   const payload: any = {
     name: name.value.trim(),
@@ -69,14 +69,21 @@ function submit() {
 
       <div class="field-group">
         <label class="field-label">Transport Type</label>
-        <div class="flex gap-4 pt-1">
-          <label class="flex items-center gap-2 cursor-pointer">
+        <div class="flex flex-wrap gap-x-6 gap-y-2 pt-1">
+          <label class="flex items-center gap-2 cursor-pointer group">
             <input v-model="transport" type="radio" value="stdio" class="accent-accent" />
-            <span class="text-[13px] text-body">stdio (Local)</span>
+            <span class="text-[13px] text-body group-hover:text-primary transition-colors">stdio (Local)</span>
           </label>
-          <label class="flex items-center gap-2 cursor-pointer">
+          <label class="flex items-center gap-2 cursor-pointer group">
+            <input v-model="transport" type="radio" value="http" class="accent-accent" />
+            <span class="text-[13px] text-body group-hover:text-primary transition-colors">http (Streamable)</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer group">
             <input v-model="transport" type="radio" value="sse" class="accent-accent" />
-            <span class="text-[13px] text-body">sse (Remote)</span>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[13px] text-body group-hover:text-primary transition-colors">sse (Classic)</span>
+              <span class="text-[9px] font-mono px-1 py-0.5 rounded bg-error/10 text-error uppercase leading-none border border-error/20">Deprecated</span>
+            </div>
           </label>
         </div>
       </div>

@@ -77,6 +77,9 @@ function testServer(name: string) {
                 <span v-if="server.transport" class="text-[10px] px-1.5 py-0.5 rounded font-medium tracking-wide uppercase bg-surface-raised text-meta border border-subtle">
                   {{ server.transport }}
                 </span>
+                <span v-if="server.transport === 'sse'" class="text-[9px] font-mono px-1 py-0.5 rounded bg-error/10 text-error uppercase leading-none border border-error/20">
+                  Deprecated
+                </span>
                 <span v-if="server.disabled" class="text-[10px] px-1.5 py-0.5 rounded font-medium tracking-wide uppercase bg-error/10 text-error border border-error/20">
                   Disabled
                 </span>

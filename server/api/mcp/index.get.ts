@@ -16,9 +16,11 @@ export default defineEventHandler(async (event) => {
       const data = JSON.parse(raw)
       if (data.mcpServers) {
         for (const [name, config] of Object.entries(data.mcpServers)) {
+          const srvConfig = config as any
           servers.push({
             name,
-            ...(config as object),
+            ...srvConfig,
+            transport: srvConfig.transport || (srvConfig.url ? 'sse' : 'stdio'),
             scope: 'global'
           })
         }
@@ -37,12 +39,13 @@ export default defineEventHandler(async (event) => {
         const data = JSON.parse(raw)
         if (data.mcpServers) {
           for (const [name, config] of Object.entries(data.mcpServers)) {
+            const srvConfig = config as any
             servers.push({
               name,
-              ...(config as object),
+              ...srvConfig,
+              transport: srvConfig.transport || (srvConfig.url ? 'sse' : 'stdio'),
               scope: 'project'
-            })
-          }
+            })          }
         }
       } catch (err) {
         console.error('Failed to parse project .mcp.json', err)

@@ -1,6 +1,6 @@
 export interface McpServer {
   name: string
-  transport: 'stdio' | 'sse'
+  transport: 'stdio' | 'sse' | 'http'
   command?: string
   args?: string[]
   env?: Record<string, string>
@@ -26,10 +26,13 @@ export function useMCP() {
         query: { workingDir: workingDir.value }
       })
       // Map existing configs to include transport if missing
-      servers.value = data.map(s => ({
-        ...s,
-        transport: s.url ? 'sse' : 'stdio'
-      }))
+      servers.value = data.map(s => {
+        let transport = s.transport
+        if (!transport) {
+          transport = s.url ? 'sse' : 'stdio'
+        }
+        return { ...s, transport }
+      })
     } catch (err: any) {
       error.value = err.message || 'Failed to fetch MCP servers'
       toast.add({ title: 'Failed to load servers', description: error.value, color: 'error' })
@@ -43,9 +46,13 @@ export function useMCP() {
       const data = await $fetch<any>(`/api/mcp/${encodeURIComponent(name)}`, {
         query: { scope, workingDir: workingDir.value }
       })
+      let transport = data.transport
+      if (!transport) {
+        transport = data.url ? 'sse' : 'stdio'
+      }
       return {
         ...data,
-        transport: data.url ? 'sse' : 'stdio'
+        transport
       } as McpServer
     } catch (err: any) {
       toast.add({ title: 'Failed to fetch server', description: err.message, color: 'error' })
@@ -102,6 +109,17 @@ export function useMCP() {
     }
   }
 
+  async function fetchCapabilities(name: string, scope: 'global' | 'project') {
+    try {
+      return await $fetch<any>(`/api/mcp/${encodeURIComponent(name)}/capabilities`, {
+        query: { scope, workingDir: workingDir.value }
+      })
+    } catch (err: any) {
+      toast.add({ title: 'Failed to fetch capabilities', description: err.message, color: 'error' })
+      throw err
+    }
+  }
+
   return {
     servers,
     loading,
@@ -110,6 +128,7 @@ export function useMCP() {
     fetchServer,
     addServer,
     toggleServer,
-    removeServer
+    removeServer,
+    fetchCapabilities
   }
 }

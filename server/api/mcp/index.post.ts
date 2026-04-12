@@ -42,10 +42,10 @@ export default defineEventHandler(async (event) => {
     delete data.mcpServers[oldName]
   }
 
-  // Build config based on transport
-  const config: any = {}
-  if (disabled !== undefined) {
-    config.disabled = !!disabled
+  // Update or add the server
+  const config: any = {
+    transport,
+    disabled: !!disabled
   }
   
   if (transport === 'stdio') {
@@ -54,15 +54,13 @@ export default defineEventHandler(async (event) => {
     config.args = Array.isArray(args) ? args : []
     config.env = typeof env === 'object' && env !== null ? env : {}
   } else if (transport === 'sse' || transport === 'http') {
-    if (!url) throw createError({ statusCode: 400, message: 'URL is required for sse transport' })
-    config.type = 'http'
+    if (!url) throw createError({ statusCode: 400, message: `URL is required for ${transport} transport` })
     config.url = url
     config.headers = typeof headers === 'object' && headers !== null ? headers : {}
   } else {
     throw createError({ statusCode: 400, message: 'Unsupported transport type' })
   }
 
-  // Update or add the server
   data.mcpServers[name] = config
 
   // Write back to file
