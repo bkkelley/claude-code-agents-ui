@@ -1,6 +1,11 @@
 # Quick Start — No Terminal Required
 
-Download or clone this repo, then **double-click** the launcher for your OS:
+1. Go to the [**Releases page**](https://github.com/bkkelley/claude-code-agents-ui/releases/latest).
+2. Download:
+   - **macOS / Linux:** the `.tar.gz` file (preserves executable bits on launchers)
+   - **Windows:** the `.zip` file
+3. Extract the archive anywhere (Downloads, Desktop, etc.)
+4. **Double-click** the launcher for your OS:
 
 | Platform | File |
 |----------|------|
