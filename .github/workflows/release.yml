@@ -37,10 +37,19 @@ jobs:
       - name: Extract release notes from tag
         id: notes
         run: |
-          # Use annotated-tag message as release body. Fallback if tag is lightweight.
-          BODY=$(git tag -l --format='%(contents)' "${GITHUB_REF_NAME}")
+          TAG="${GITHUB_REF_NAME}"
+          # actions/checkout can leave the tag as a lightweight pointer even
+          # with fetch-tags: true. Force a fresh fetch of the tag object itself.
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" --no-tags --force 2>/dev/null || true
+
+          # If it's a real annotated tag object, extract the message body
+          # (everything after the header block's blank line).
+          BODY=""
+          if [ "$(git cat-file -t "${TAG}" 2>/dev/null)" = "tag" ]; then
+            BODY=$(git cat-file tag "${TAG}" | awk 'found{print} /^$/{found=1}')
+          fi
           if [ -z "$BODY" ]; then
-            BODY="Release ${GITHUB_REF_NAME}"
+            BODY="Release ${TAG}"
           fi
           {
             echo 'body<<RELEASE_NOTES_EOF'
