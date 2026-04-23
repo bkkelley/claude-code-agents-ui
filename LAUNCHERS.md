@@ -23,13 +23,27 @@ The launcher:
 
 ## First-time setup notes
 
-### macOS
+### macOS — "Apple could not verify… is free of malware"
 
-When you first double-click `Start-macOS.command`, macOS may block it with a "cannot be opened because it is from an unidentified developer" warning.
+This is expected. macOS Gatekeeper blocks unsigned scripts downloaded from the internet until you explicitly allow them. Nothing is wrong with the launcher — you just need to approve it once.
 
-**Fix:** Right-click the file → **Open** → click **Open** in the dialog. You only need to do this once.
+**The reliable fix (works on every macOS version):**
 
-If the file opens as a text file instead of running, it lost its executable bit. Fix with one Terminal command:
+1. Double-click `Start-macOS.command`. You'll see the "could not verify" warning. Click **Done** (or **Cancel**) to dismiss it.
+2. Open **System Settings** (Apple menu → System Settings).
+3. Go to **Privacy & Security** in the sidebar.
+4. Scroll down to the **Security** section. You'll see a message like:
+   > *"`Start-macOS.command` was blocked to protect your Mac."*
+5. Click **Open Anyway** next to that message.
+6. Authenticate with your password or Touch ID when prompted.
+7. A confirmation dialog appears — click **Open Anyway** again.
+8. Terminal launches and the app starts. You won't see this warning again for this file.
+
+**Shortcut that sometimes works:** right-click (or Control-click) the file in Finder → **Open** → **Open** in the dialog. On older macOS this is enough; on Sequoia (15+) the System Settings route above is more reliable.
+
+**Why this happens:** my launcher isn't code-signed with an Apple Developer ID. Signing would cost $99/yr and make the warning disappear entirely — a path worth considering only if you're distributing this broadly to non-technical users.
+
+**If the file opens as a text file instead of running,** it lost its executable bit during extraction (common with `.zip`; the `.tar.gz` build avoids this). Fix with one Terminal command, or re-download the `.tar.gz` instead:
 
 ```
 chmod +x Start-macOS.command
