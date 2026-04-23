@@ -102,8 +102,22 @@ if (import.meta.client) {
   onUnmounted(() => document.removeEventListener('keydown', chatHandler))
 }
 
+// Project scope — refetch scoped resources (agents, skills, commands) whenever
+// the active project path changes. This keeps views in sync when the user
+// toggles Project Scope from Settings.
+const { activeProjectPath, mode: scopeMode, projectPath: scopeProjectPath, validatePath: validateScopePath } = useProjectScope()
+watch(activeProjectPath, () => {
+  if (!initialized.value) return
+  Promise.all([fetchAgents(), fetchSkills(), fetchCommands()]).catch(() => {})
+})
+
 onMounted(async () => {
   await loadConfig()
+  // Silently revalidate a saved project scope so the Settings page shows the
+  // correct "active" confirmation without the user having to click Apply again.
+  if (scopeMode.value === 'global+project' && scopeProjectPath.value) {
+    validateScopePath().catch(() => {})
+  }
   await Promise.all([fetchAgents(), fetchCommands(), fetchPlugins(), fetchSkills(), fetchWorkflows(), fetchServers()])
   initialized.value = true
 })

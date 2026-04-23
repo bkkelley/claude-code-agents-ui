@@ -4,8 +4,8 @@ import { getModelBadgeClasses } from '~/utils/models'
 import { agentTemplates } from '~/utils/templates'
 
 const { agents, loading, error, create, fetchAll: fetchAgents } = useAgents()
-const { mode: scopeMode, validated: scopeValidated } = useProjectScope()
-const projectScopeActive = computed(() => scopeMode.value === 'global+project' && scopeValidated.value)
+const { activeProjectPath } = useProjectScope()
+const projectScopeActive = computed(() => !!activeProjectPath.value)
 const router = useRouter()
 const toast = useToast()
 

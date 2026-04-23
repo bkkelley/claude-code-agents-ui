@@ -1,7 +1,13 @@
 import type { Command, CommandPayload } from '~/types'
 
 export function useCommands() {
+  const { activeProjectPath } = useProjectScope()
   const crud = useCrud<Command, CommandPayload>('/api/commands', { stateKey: 'commands', label: 'commands' })
+
+  async function fetchAll(params: any = {}) {
+    const scopeParams = activeProjectPath.value ? { projectPath: activeProjectPath.value } : {}
+    return crud.fetchAll({ ...scopeParams, ...params })
+  }
 
   const groupedByDirectory = computed(() => {
     const groups: Record<string, Command[]> = {}
@@ -26,7 +32,7 @@ export function useCommands() {
     commands: crud.items,
     loading: crud.loading,
     error: crud.error,
-    fetchAll: crud.fetchAll,
+    fetchAll,
     fetchOne: crud.fetchOne,
     create: crud.create,
     update: crud.update,

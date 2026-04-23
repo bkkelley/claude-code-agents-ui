@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { resolveClaudePath } from '../../utils/claudeDir'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import type { Command, CommandFrontmatter } from '~/types'
@@ -38,8 +39,29 @@ async function scanDir(dir: string, relDir: string): Promise<Command[]> {
   return commands
 }
 
-export default defineEventHandler(async () => {
-  const commandsDir = resolveClaudePath('commands')
-  const commands = await scanDir(commandsDir, '')
-  return commands.sort((a, b) => a.frontmatter.name.localeCompare(b.frontmatter.name))
+function expandPath(p: string): string {
+  return p.startsWith('~') ? join(homedir(), p.slice(1)) : p
+}
+
+export default defineEventHandler(async (event) => {
+  const { projectPath } = getQuery(event) as { projectPath?: string }
+
+  const globalCommandsDir = resolveClaudePath('commands')
+  const globalCommands = await scanDir(globalCommandsDir, '')
+
+  if (!projectPath) {
+    return globalCommands.sort((a, b) => a.frontmatter.name.localeCompare(b.frontmatter.name))
+  }
+
+  const projectCommandsDir = join(expandPath(projectPath), '.claude', 'commands')
+  const projectCommands = await scanDir(projectCommandsDir, '')
+
+  // Project commands take precedence on slug collision.
+  const projectSlugs = new Set(projectCommands.map(c => c.slug))
+  const merged = [
+    ...projectCommands,
+    ...globalCommands.filter(c => !projectSlugs.has(c.slug)),
+  ]
+
+  return merged.sort((a, b) => a.frontmatter.name.localeCompare(b.frontmatter.name))
 })

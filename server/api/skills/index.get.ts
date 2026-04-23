@@ -1,11 +1,16 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { resolveClaudePath } from '../../utils/claudeDir'
 import { parseFrontmatter } from '../../utils/frontmatter'
 import { resolvePluginInstallPath } from '../../utils/marketplace'
 import { getPreloadingAgents, getMcpServerForSkill } from '../../utils/skillRelationships'
 import type { Skill, SkillFrontmatter } from '~/types'
+
+function expandPath(p: string): string {
+  return p.startsWith('~') ? join(homedir(), p.slice(1)) : p
+}
 
 interface InstalledEntry {
   installPath: string
@@ -23,7 +28,7 @@ async function readJson<T>(path: string): Promise<T | null> {
 }
 
 export default defineEventHandler(async (event) => {
-  const { workingDir } = getQuery(event) as { workingDir?: string }
+  const { workingDir, projectPath } = getQuery(event) as { workingDir?: string; projectPath?: string }
   const skills: Skill[] = []
 
   // Load all agents to find preloading associations
@@ -84,6 +89,41 @@ export default defineEventHandler(async (event) => {
       }
       await attachMetadata(skill)
       skills.push(skill)
+    }
+  }
+
+  // 1b. Project-scoped standalone skills from {projectPath}/.claude/skills/
+  if (projectPath) {
+    const projectSkillsDir = join(expandPath(projectPath), '.claude', 'skills')
+    if (existsSync(projectSkillsDir)) {
+      const entries = await readdir(projectSkillsDir, { withFileTypes: true })
+      for (const dir of entries) {
+        if (!dir.isDirectory()) continue
+        const skillPath = join(projectSkillsDir, dir.name, 'SKILL.md')
+        if (!existsSync(skillPath)) continue
+
+        const raw = await readFile(skillPath, 'utf-8')
+        const { frontmatter, body } = parseFrontmatter<SkillFrontmatter>(raw)
+
+        let slug = dir.name
+        if ((slug.toLowerCase() === 'skill' || !slug) && frontmatter.name) {
+          slug = frontmatter.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+        }
+
+        // Project skills take precedence on slug collision — remove any global version.
+        const existingIdx = skills.findIndex(s => s.slug === slug)
+        if (existingIdx >= 0) skills.splice(existingIdx, 1)
+
+        const skill: Skill = {
+          slug,
+          frontmatter: { name: slug, ...frontmatter },
+          body,
+          filePath: skillPath,
+          source: 'local',
+        }
+        await attachMetadata(skill)
+        skills.push(skill)
+      }
     }
   }
 
