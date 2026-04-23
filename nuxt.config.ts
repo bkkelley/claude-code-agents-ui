@@ -18,6 +18,15 @@ export default defineNuxtConfig({
     experimental: {
       websocket: true,
     },
+    // node-pty ships native prebuilds in node_modules/node-pty/prebuilds/{platform}-{arch}/pty.node
+    // and loads them via dynamic require paths that nft (node-file-trace) can't detect,
+    // so the native binaries get dropped from .output/ unless we force their inclusion.
+    externals: {
+      traceInclude: [
+        'node_modules/node-pty/build/Release/pty.node',
+        'node_modules/node-pty/prebuilds',
+      ],
+    },
   },
 
   app: {
