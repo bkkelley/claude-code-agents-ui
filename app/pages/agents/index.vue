@@ -4,6 +4,8 @@ import { getModelBadgeClasses } from '~/utils/models'
 import { agentTemplates } from '~/utils/templates'
 
 const { agents, loading, error, create, fetchAll: fetchAgents } = useAgents()
+const { mode: scopeMode, validated: scopeValidated } = useProjectScope()
+const projectScopeActive = computed(() => scopeMode.value === 'global+project' && scopeValidated.value)
 const router = useRouter()
 const toast = useToast()
 
@@ -157,6 +159,13 @@ async function useTemplate(templateId: string) {
                   :class="[getModelBadgeClasses(agent.frontmatter.model).bg, getModelBadgeClasses(agent.frontmatter.model).text]"
                 >
                   {{ agent.frontmatter.model }}
+                </span>
+                <span
+                  v-if="projectScopeActive && agent.scope === 'project'"
+                  class="text-[10px] font-medium px-1.5 py-px rounded-full shrink-0"
+                  style="background: rgba(99,102,241,0.12); color: rgb(99,102,241);"
+                >
+                  project
                 </span>
               </div>
 

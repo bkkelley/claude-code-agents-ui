@@ -20,6 +20,7 @@ export interface Agent {
   body: string
   hasMemory: boolean
   filePath: string
+  scope?: 'global' | 'project'
 }
 
 export interface CommandFrontmatter {

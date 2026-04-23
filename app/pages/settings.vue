@@ -263,6 +263,34 @@ const plugins = computed(() => {
 
 const charCount = computed(() => rawJson.value.length)
 const lineCount = computed(() => rawJson.value.split('\n').length)
+
+// ---- Project Scope ----
+
+const {
+  mode: scopeMode,
+  projectPath: scopeProjectPath,
+  validating: scopeValidating,
+  validationError: scopeValidationError,
+  validated: scopeValidated,
+  setMode: setScopeMode,
+  setProjectPath: setScopeProjectPath,
+  validatePath: validateScopePath,
+} = useProjectScope()
+
+const scopePathInput = ref(scopeProjectPath.value)
+
+async function applyProjectScope() {
+  setScopeProjectPath(scopePathInput.value)
+  const ok = await validateScopePath()
+  if (ok) toast.add({ title: 'Project scope set', color: 'success' })
+}
+
+function clearProjectScope() {
+  setScopeMode('global')
+  scopePathInput.value = ''
+  setScopeProjectPath('')
+  toast.add({ title: 'Project scope cleared', color: 'neutral' })
+}
 </script>
 
 <template>
@@ -313,6 +341,80 @@ const lineCount = computed(() => rawJson.value.split('\n').length)
               </span>
             </label>
           </div>
+        </div>
+      </div>
+
+      <!-- Project Scope -->
+      <div class="rounded-xl p-5 space-y-4 bg-card">
+        <div>
+          <h3 class="text-section-title">Project Scope</h3>
+          <p class="text-[12px] mt-1 text-label">
+            Load agents from a specific project directory in addition to your global agents.
+          </p>
+        </div>
+
+        <!-- Mode toggle -->
+        <div class="flex gap-2">
+          <button
+            class="text-[12px] px-3 py-1.5 rounded-lg focus-ring transition-colors"
+            :style="scopeMode === 'global'
+              ? 'background: var(--accent); color: #fff;'
+              : 'background: var(--surface-raised); color: var(--text-label); border: 1px solid var(--border-default);'"
+            @click="setScopeMode('global')"
+          >
+            Global only
+          </button>
+          <button
+            class="text-[12px] px-3 py-1.5 rounded-lg focus-ring transition-colors"
+            :style="scopeMode === 'global+project'
+              ? 'background: var(--accent); color: #fff;'
+              : 'background: var(--surface-raised); color: var(--text-label); border: 1px solid var(--border-default);'"
+            @click="setScopeMode('global+project')"
+          >
+            Global + Project
+          </button>
+        </div>
+
+        <!-- Path input (shown when global+project selected) -->
+        <div v-if="scopeMode === 'global+project'" class="space-y-2">
+          <label class="text-[12px] font-medium text-label">Project directory path</label>
+          <div class="flex gap-2">
+            <input
+              v-model="scopePathInput"
+              placeholder="~/projects/my-project"
+              class="field-input flex-1 font-mono text-[12px]"
+              @keydown.enter="applyProjectScope"
+            />
+            <UButton
+              label="Apply"
+              size="sm"
+              :loading="scopeValidating"
+              @click="applyProjectScope"
+            />
+            <UButton
+              v-if="scopeValidated"
+              icon="i-lucide-x"
+              size="sm"
+              variant="soft"
+              color="neutral"
+              @click="clearProjectScope"
+            />
+          </div>
+
+          <!-- Validation feedback -->
+          <div v-if="scopeValidationError" class="flex items-center gap-1.5">
+            <UIcon name="i-lucide-alert-circle" class="size-3.5 shrink-0" style="color: var(--error);" />
+            <span class="text-[11px]" style="color: var(--error);">{{ scopeValidationError }}</span>
+          </div>
+          <div v-else-if="scopeValidated" class="flex items-center gap-1.5">
+            <UIcon name="i-lucide-check-circle" class="size-3.5 shrink-0" style="color: var(--success);" />
+            <span class="text-[11px]" style="color: var(--success);">
+              Project scope active — agents from <code class="font-mono">{{ scopeProjectPath }}/.claude/agents</code> will appear alongside global agents.
+            </span>
+          </div>
+          <p v-else class="text-[11px] text-meta">
+            Path must point to a directory containing a <code class="font-mono">.claude</code> folder.
+          </p>
         </div>
       </div>
 
