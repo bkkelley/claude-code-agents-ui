@@ -21,6 +21,36 @@ The launcher:
 
 **Keep the launcher window open while using the app.** Closing it shuts down the server.
 
+## Desktop shortcut / Dock icon
+
+After extracting the release, you can set up a one-click launcher so you don't have to navigate into the folder every time.
+
+### macOS — drag the .app
+
+The release includes `Claude Agents UI.app` alongside the scripts. It's a proper macOS app bundle.
+
+- **Drag it to your Dock** — creates a persistent Dock icon. Click anytime to launch.
+- **Drag it to your Desktop** — creates a Desktop icon (hold ⌘⌥ while dragging to make an alias and leave the original in place).
+- **Drag it to Applications** — makes it a system-wide app. If you do this, leave the extracted folder in place (the `.app` needs to find its sibling `Start-macOS.command`). If you want true portability, use a Dock or Desktop alias instead of moving the `.app`.
+
+First launch still triggers the Gatekeeper warning — follow the "Open Anyway" steps in the macOS section below. You only need to do that once.
+
+### Windows — run Create-Desktop-Shortcut-Windows.bat
+
+Double-click **`Create-Desktop-Shortcut-Windows.bat`**. It creates a `Claude Agents UI` shortcut on your Desktop that points at `Start-Windows.bat`. Double-click the shortcut anytime to launch.
+
+To pin to the Start Menu or Taskbar: right-click the shortcut on your Desktop → **Pin to Start** or **Pin to taskbar**.
+
+### Linux — run Create-Desktop-Shortcut-Linux.sh
+
+From a terminal in the extracted folder:
+
+```
+./Create-Desktop-Shortcut-Linux.sh
+```
+
+This installs a `.desktop` entry to `~/.local/share/applications/`, so "Claude Agents UI" appears in your application launcher. The script also prints a one-liner to copy the entry to your Desktop if you want a desktop icon too.
+
 ## First-time setup notes
 
 ### macOS — "Apple could not verify… is free of malware"

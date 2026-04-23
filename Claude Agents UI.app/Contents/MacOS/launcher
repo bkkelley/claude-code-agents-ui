@@ -1,0 +1,31 @@
+#!/bin/bash
+# Bundle launcher — finds the repo (parent of this .app), then runs
+# Start-macOS.command inside Terminal so the user can see progress and
+# closing the window cleanly shuts down the server.
+
+set -e
+
+APP_PATH="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_ROOT="$(dirname "$APP_PATH")"
+LAUNCHER="$REPO_ROOT/Start-macOS.command"
+
+if [ ! -f "$LAUNCHER" ]; then
+  # App was moved away from the repo — tell the user and bail.
+  osascript <<APPLESCRIPT
+    display dialog "Claude Agents UI.app was moved away from its source folder.\n\nThe app needs to stay alongside Start-macOS.command. Move it back, or create a Dock shortcut by dragging the original .app (do not copy it)." buttons {"OK"} default button 1 with icon stop with title "Claude Agents UI"
+APPLESCRIPT
+  exit 1
+fi
+
+# Ensure the underlying script is executable (tar.gz preserves this, but
+# a zipped-then-unzipped copy can lose the bit).
+chmod +x "$LAUNCHER" 2>/dev/null || true
+
+# Open Terminal and run the launcher script. `exit` at the end closes the
+# Terminal window automatically when the user Ctrl+Cs the server.
+osascript <<APPLESCRIPT
+  tell application "Terminal"
+    activate
+    do script "cd \"$REPO_ROOT\" && ./Start-macOS.command; exit"
+  end tell
+APPLESCRIPT
